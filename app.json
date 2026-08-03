@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Reherza",
+    "slug": "avi",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "reherza",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#0E0B09",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "co.reherza.app",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Reherza listens while you rehearse so it can check your lines against the script.",
+        "NSCameraUsageDescription": "Reherza uses the camera to record your self-tapes in the Studio."
+      }
+    },
+    "android": {
+      "package": "co.reherza.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#0E0B09"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e359936e-2aa0-497a-a59a-25995b8703d6"
+      }
+    },
+    "owner": "avikorats-team",
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}
