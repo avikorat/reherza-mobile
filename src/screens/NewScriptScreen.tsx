@@ -11,7 +11,15 @@ import GradientButton from '../components/GradientButton';
 import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { ApiError, Projects } from '../api';
-import { fonts, warmGradient, radii } from '../theme';
+import {
+  fonts,
+  radii,
+  palette,
+  brandGradient,
+  brandGradientLocations,
+  diagonalStart,
+  diagonalEnd,
+} from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NewScript'>;
@@ -81,7 +89,7 @@ export default function NewScriptScreen({ navigation }: Props) {
   };
 
   return (
-    <Screen>
+    <Screen keyboardAvoiding>
       <View style={styles.header}>
         <BackButton onPress={() => navigation.goBack()} />
         <Text style={[styles.headerTitle, { color: theme.text }]}>New Script</Text>
@@ -90,16 +98,27 @@ export default function NewScriptScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <Field label="SCRIPT TITLE" value={title} onChangeText={setTitle} placeholder="e.g. Opening Night, Act 2" style={{ marginBottom: 22 }} />
 
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={pickFile}
-          style={[styles.dropzone, { borderColor: file ? theme.accent : theme.borderStrong, backgroundColor: theme.surfaceAlt }]}
+          style={[styles.dropzone, { borderColor: file ? theme.accent : theme.borderStrong, backgroundColor: theme.surface }]}
         >
-          <LinearGradient colors={warmGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.uploadIcon}>
-            <Feather name={file ? 'check' : 'upload'} size={24} color="#fff" />
+          <LinearGradient
+            colors={brandGradient}
+            locations={brandGradientLocations}
+            start={diagonalStart}
+            end={diagonalEnd}
+            style={styles.uploadIcon}
+          >
+            <Feather name={file ? 'check' : 'upload'} size={24} color={palette.white} />
           </LinearGradient>
           <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: theme.text, marginBottom: 4 }}>
             {file ? file.name : 'Upload your script'}
@@ -153,13 +172,13 @@ export default function NewScriptScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, marginBottom: 22 },
   headerTitle: { fontFamily: fonts.bold, fontSize: 16 },
   dropzone: {
     borderWidth: 2, borderStyle: 'dashed', borderRadius: radii.card,
     paddingVertical: 36, paddingHorizontal: 20, alignItems: 'center', marginBottom: 16,
   },
-  uploadIcon: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  uploadIcon: { width: 56, height: 56, borderRadius: radii.cardSm, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   browse: { marginTop: 16, paddingHorizontal: 22, paddingVertical: 10, borderRadius: radii.pill, borderWidth: 1 },
   divider: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 14 },
   rule: { flex: 1, height: 1 },

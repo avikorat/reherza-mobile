@@ -3,9 +3,9 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, A
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { useBottomTabBarHeight, type BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import Screen from '../components/Screen';
+import Screen, { SCREEN_EDGES_TABS } from '../components/Screen';
 import Card from '../components/Card';
 import Badge from '../components/Badge';
 import GradientButton from '../components/GradientButton';
@@ -14,7 +14,7 @@ import { Logo, Avatar, ProgressBar } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
 import { Projects, Usage, playableLines } from '../api';
-import { fonts } from '../theme';
+import { fonts, radii, stageSurfaces, diagonalStart, diagonalEnd, RED_DOT } from '../theme';
 import type { Project, RootStackParamList, TabParamList, UsageInfo } from '../types';
 
 type Props = CompositeScreenProps<
@@ -41,6 +41,10 @@ function greeting(): string {
 
 export default function HomeScreen({ navigation }: Props) {
   const { theme, toggle } = useTheme();
+  // The tab bar floats over the screen, so scroll content has to end above
+  // it. This is the bar's real height (content + the device's bottom inset),
+  // so it can't drift from the navigator's own config.
+  const tabBarHeight = useBottomTabBarHeight();
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
@@ -80,15 +84,15 @@ export default function HomeScreen({ navigation }: Props) {
 
   const statusBadge = (p: Project) => {
     if (p.parseStatus === 'processing') return <Badge variant="soft" label="Parsing…" />;
-    if (p.parseStatus === 'failed') return <Badge variant="soft" label="Failed" />;
+    if (p.parseStatus === 'failed') return <Badge variant="destructive" label="Failed" />;
     return <Badge variant="success" label="● Ready" />;
   };
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={SCREEN_EDGES_TABS}>
       <View style={styles.topbar}>
         <Logo size={17} />
-        {/* Tap the avatar to switch Paper / Stage theme (Appearance in settings). */}
+        {/* Tap the avatar to switch Light / Stage theme (Appearance in settings). */}
         <TouchableOpacity onPress={toggle} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Switch theme">
           <Avatar initials={initialsOf(user?.name)} size={40} />
         </TouchableOpacity>
@@ -96,7 +100,7 @@ export default function HomeScreen({ navigation }: Props) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 110, gap: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: tabBarHeight + 24, gap: 16 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
       >
         <View>
@@ -109,7 +113,9 @@ export default function HomeScreen({ navigation }: Props) {
 
         {error ? (
           <Card>
-            <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.accent }}>{error}</Text>
+            {/* A load failure is `destructive`, not brand — the palette keeps
+                failing states outside the brand ramp on purpose. */}
+            <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.destructive }}>{error}</Text>
             <TouchableOpacity onPress={load} style={{ marginTop: 8 }}>
               <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Retry</Text>
             </TouchableOpacity>
@@ -121,7 +127,7 @@ export default function HomeScreen({ navigation }: Props) {
             <View style={styles.rowBetween}>
               <Text style={[styles.cardLabel, { color: theme.text }]}>Voice credits</Text>
               <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
-                <Text style={{ fontFamily: fonts.serif, fontSize: 15, color: theme.text }}>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 15, color: theme.text }}>
                   {Math.round(usage.charsUsed / 1000)}k
                 </Text>{' '}
                 / {Math.round((usage.charLimit || 0) / 1000)}k chars
@@ -159,7 +165,7 @@ export default function HomeScreen({ navigation }: Props) {
 
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <GradientButton label="+ New Script" small style={{ flex: 1 }} onPress={() => navigation.navigate('NewScript')} />
-          <OutlineButton label="🎭 Playhouse" small flex onPress={() => navigation.navigate('Playhouse')} />
+          <OutlineButton icon="book-open" label="Playhouse" small flex onPress={() => navigation.navigate('Playhouse')} />
         </View>
 
         <View style={[styles.rowBetween, { marginTop: 2 }]}>
@@ -192,8 +198,12 @@ export default function HomeScreen({ navigation }: Props) {
                 }
               >
                 <Card style={styles.scriptRow} padding={14}>
+                  {/* Script "spine": the stage-dark surfaces from the landing
+                      page, so the cover reads as a poster rather than a chip. */}
                   <LinearGradient
-                    colors={theme.key === 'stage' ? ['#3a3129', '#0E0B09'] : ['#2b2622', '#16110C']}
+                    colors={[stageSurfaces.card, stageSurfaces.bg]}
+                    start={diagonalStart}
+                    end={diagonalEnd}
                     style={styles.cover}
                   >
                     <View style={styles.coverDot} />
@@ -227,15 +237,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24, paddingVertical: 12,
   },
   greet: { fontFamily: fonts.regular, fontSize: 14, marginBottom: 2 },
-  title: { fontFamily: fonts.heavy, fontSize: 28, letterSpacing: -0.9 },
+  // Headings track tight (-0.01em … -0.02em), as `h1-h4` do on the web.
+  title: { fontFamily: fonts.heavy, fontSize: 28, letterSpacing: -0.6 },
   sub: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardLabel: { fontFamily: fonts.bold, fontSize: 13 },
-  stat: { fontFamily: fonts.serifBold, fontSize: 24, textAlign: 'center' },
+  stat: { fontFamily: fonts.heavy, fontSize: 24, letterSpacing: -0.5, textAlign: 'center' },
   statLabel: { fontFamily: fonts.semibold, fontSize: 10.5, letterSpacing: 0.4, textAlign: 'center', marginTop: 1 },
   sectionTitle: { fontFamily: fonts.bold, fontSize: 15 },
   scriptRow: { flexDirection: 'row', alignItems: 'center', gap: 13 },
-  cover: { width: 44, height: 56, borderRadius: 8, justifyContent: 'flex-end', padding: 6 },
-  coverDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#FF0000' },
+  cover: { width: 44, height: 56, borderRadius: radii.control, justifyContent: 'flex-end', padding: 6 },
+  coverDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: RED_DOT },
   scriptTitle: { fontFamily: fonts.bold, fontSize: 15 },
 });

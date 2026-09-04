@@ -13,7 +13,15 @@ import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { ApiError, Projects, Tts, Voices, myCharacters, playableLines } from '../api';
 import { playBase64 } from '../lib/audio';
-import { fonts, warmGradient, radii } from '../theme';
+import {
+  fonts,
+  radii,
+  palette,
+  brandGradient,
+  brandGradientLocations,
+  diagonalStart,
+  diagonalEnd,
+} from '../theme';
 import type { Project, RootStackParamList, Voice, VoiceAssignment } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptDetail'>;
@@ -161,11 +169,17 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                 <TouchableOpacity key={r.name} activeOpacity={0.85} onPress={() => pickRole(r.name)}>
                   <Card selected={selected} padding={13} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                     {selected ? (
-                      <LinearGradient colors={warmGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.roleAvatar}>
+                      <LinearGradient
+                        colors={brandGradient}
+                        locations={brandGradientLocations}
+                        start={diagonalStart}
+                        end={diagonalEnd}
+                        style={styles.roleAvatar}
+                      >
                         <Text style={styles.roleInitials}>{initialsOf(r.name)}</Text>
                       </LinearGradient>
                     ) : (
-                      <View style={[styles.roleAvatar, { backgroundColor: theme.border }]}>
+                      <View style={[styles.roleAvatar, { backgroundColor: theme.surfaceAlt }]}>
                         <Text style={[styles.roleInitials, { color: theme.muted }]}>{initialsOf(r.name)}</Text>
                       </View>
                     )}
@@ -176,7 +190,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                       </Text>
                     </View>
                     <View style={[styles.radio, selected ? { backgroundColor: theme.accent } : { borderWidth: 1.5, borderColor: theme.borderStrong }]}>
-                      {selected ? <Feather name="check" size={12} color="#fff" /> : null}
+                      {selected ? <Feather name="check" size={12} color={palette.white} /> : null}
                     </View>
                   </Card>
                 </TouchableOpacity>
@@ -194,9 +208,11 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             </View>
             <Card padding={13} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 }}>
-              <LinearGradient colors={theme.key === 'stage' ? ['#2b2622', '#0E0B09'] : ['#2b2622', '#16110C']} style={styles.voiceIcon}>
-                <Feather name="volume-2" size={18} color="#F5A623" />
-              </LinearGradient>
+              {/* The AI partner's tile takes the partner cyan, matching the
+                  teleprompter's line-ownership colours. */}
+              <View style={[styles.voiceIcon, { backgroundColor: theme.tpPartnerBg, borderColor: theme.tpPartner }]}>
+                <Feather name="volume-2" size={18} color={theme.tpPartner} />
+              </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.text }}>
                   {aiVoice ? aiVoice.name : 'No voices available'}
@@ -205,11 +221,11 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                   {aiVoice?.description || '—'}
                 </Text>
               </View>
-              <TouchableOpacity onPress={testVoice} style={[styles.test, { borderColor: theme.accent }]}>
+              <TouchableOpacity onPress={testVoice} style={[styles.test, { borderColor: theme.accent2 }]}>
                 {testing ? (
-                  <ActivityIndicator size="small" color={theme.accent} />
+                  <ActivityIndicator size="small" color={theme.accent2} />
                 ) : (
-                  <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent }}>▶ Test</Text>
+                  <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent2 }}>▶ Test</Text>
                 )}
               </TouchableOpacity>
             </Card>
@@ -218,7 +234,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
       </ScrollView>
 
       <View style={[styles.footer, { backgroundColor: theme.bg }]}>
-        <OutlineButton label="🎬 Studio" onPress={() => navigation.navigate('Studio', { id: projectId })} />
+        <OutlineButton secondary icon="video" label="Studio" onPress={() => navigation.navigate('Studio', { id: projectId })} />
         <GradientButton
           label="Start Rehearsal →"
           style={{ flex: 1 }}
@@ -231,13 +247,13 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 8 },
-  title: { fontFamily: fonts.heavy, fontSize: 29, letterSpacing: -0.9, marginTop: 10, marginBottom: 4 },
+  title: { fontFamily: fonts.heavy, fontSize: 29, letterSpacing: -0.7, marginTop: 10, marginBottom: 4 },
   sectionLabel: { fontFamily: fonts.bold, fontSize: 13, marginBottom: 10 },
   roleAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  roleInitials: { color: '#fff', fontFamily: fonts.heavy, fontSize: 13 },
+  roleInitials: { color: palette.white, fontFamily: fonts.bold, fontSize: 13 },
   radio: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 0 },
-  voiceIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  voiceIcon: { width: 40, height: 40, borderRadius: radii.tile, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   test: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: radii.pill, borderWidth: 1, minWidth: 58, alignItems: 'center' },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, paddingTop: 14, paddingBottom: 8 },
 });

@@ -8,7 +8,15 @@ import GradientButton from '../components/GradientButton';
 import { BackButton, ProgressBar } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { Billing, Usage } from '../api';
-import { fonts, radii, brandGradient, brandGradientLocations } from '../theme';
+import {
+  fonts,
+  radii,
+  palette,
+  brandGradient,
+  brandGradientLocations,
+  diagonalStart,
+  diagonalEnd,
+} from '../theme';
 import type { Plan, RootStackParamList, Subscription, UsageInfo } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Billing'>;
@@ -39,9 +47,9 @@ function PlanRow({ plan, current, onPick, busy }: PlanRowProps) {
           {
             backgroundColor: theme.surface,
             borderColor: current ? theme.accent : theme.border,
-            borderWidth: current ? 1.5 : 1,
-            shadowColor: current ? theme.accent : theme.shadow,
-            shadowOpacity: current ? 0.1 : 0.06,
+            borderWidth: 1,
+            shadowColor: theme.shadow,
+            shadowOpacity: 0.6,
           },
         ]}
       >
@@ -49,8 +57,8 @@ function PlanRow({ plan, current, onPick, busy }: PlanRowProps) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontFamily: fonts.bold, fontSize: 15, color: theme.text }}>{plan.name}</Text>
             {current ? (
-              <View style={[styles.currentPill, { backgroundColor: theme.accentBg }]}>
-                <Text style={{ fontFamily: fonts.heavy, fontSize: 10, color: theme.accent }}>CURRENT</Text>
+              <View style={[styles.currentPill, { backgroundColor: theme.accentBg, borderColor: theme.accentRing }]}>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 10, color: theme.accent }}>CURRENT</Text>
               </View>
             ) : null}
           </View>
@@ -130,12 +138,14 @@ export default function BillingScreen({ navigation }: Props) {
           <Text style={[styles.h1, { color: theme.text }]}>Subscription</Text>
         </View>
 
-        {/* Current plan card */}
+        {/* Current plan card — the palette guide's "Gradient Hero Card": one of
+            the few surfaces the brand sweep is reserved for, on the 135° angle
+            that reads better across a rectangle. */}
         <LinearGradient
           colors={brandGradient}
           locations={brandGradientLocations}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+          start={diagonalStart}
+          end={diagonalEnd}
           style={styles.hero}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -215,19 +225,21 @@ export default function BillingScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  h1: { fontFamily: fonts.heavy, fontSize: 24, letterSpacing: -0.7 },
+  h1: { fontFamily: fonts.heavy, fontSize: 24, letterSpacing: -0.5 },
   hero: {
-    borderRadius: 18,
+    borderRadius: radii.card,
     padding: 18,
-    shadowColor: '#C21807',
-    shadowOpacity: 0.5,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: palette.blue,
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 5,
   },
-  heroEyebrow: { fontFamily: fonts.heavy, fontSize: 10.5, letterSpacing: 1.4, color: 'rgba(255,255,255,0.82)' },
-  heroPlan: { fontFamily: fonts.serifBold, fontSize: 30, color: '#fff', marginTop: 4 },
-  heroPrice: { fontFamily: fonts.serifBold, fontSize: 26, color: '#fff' },
+  // Supporting copy on a gradient surface steps down in opacity rather than to
+  // a grey that would fight the sweep (the web's `.grad-surface-sub`).
+  heroEyebrow: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 1.4, color: 'rgba(255,255,255,0.85)' },
+  heroPlan: { fontFamily: fonts.heavy, fontSize: 30, letterSpacing: -0.7, color: palette.white, marginTop: 4 },
+  heroPrice: { fontFamily: fonts.heavy, fontSize: 26, letterSpacing: -0.6, color: palette.white },
   heroPer: { fontFamily: fonts.regular, fontSize: 11, color: 'rgba(255,255,255,0.85)' },
   heroMeta: { fontFamily: fonts.regular, fontSize: 12, color: 'rgba(255,255,255,0.9)', marginTop: 16 },
   planRow: {
@@ -241,5 +253,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  currentPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  currentPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radii.control, borderWidth: 1 },
 });

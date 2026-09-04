@@ -30,12 +30,19 @@ interface AuthResponse {
 // ── Auth ────────────────────────────────────────────────────────────────
 export const Auth = {
   signupStatus: () => api<{ open: boolean }>('/auth/signup-status'),
-  register: (name: string, email: string, password: string) =>
-    api<AuthResponse>('/auth/register', { method: 'POST', body: { name, email, password } }),
+  // `acceptedLegal` is REQUIRED by the server: both this route and a first-time
+  // cognito-sync return 422 without a complete, current set. See src/legal.ts.
+  register: (name: string, email: string, password: string, acceptedLegal: Record<string, string>) =>
+    api<AuthResponse>('/auth/register', {
+      method: 'POST',
+      body: { name, email, password, acceptedLegal },
+    }),
   login: (email: string, password: string) =>
     api<AuthResponse>('/auth/login', { method: 'POST', body: { email, password } }),
-  cognitoSync: (idToken: string) =>
-    api<AuthResponse>('/auth/cognito-sync', { method: 'POST', body: { idToken } }),
+  // The same gate applies to a first-time Google/Apple sign-in, which has no
+  // form — the server enforces it at account creation, not in the UI.
+  cognitoSync: (idToken: string, acceptedLegal: Record<string, string>) =>
+    api<AuthResponse>('/auth/cognito-sync', { method: 'POST', body: { idToken, acceptedLegal } }),
   logout: () => api<{ message: string }>('/auth/logout', { method: 'POST' }),
   me: () => api<User>('/auth/me'),
   deleteAccount: () => api<{ message: string }>('/auth/account', { method: 'DELETE' }),

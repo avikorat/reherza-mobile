@@ -184,8 +184,13 @@ export type TabParamList = {
 export type RootStackParamList = {
   SignIn: undefined;
   CreateAccount: undefined;
-  VerifyEmail: undefined;
-  ResetPassword: undefined;
+  /** `destination` is Cognito's masked delivery target, e.g. "a***@e***.com". */
+  VerifyEmail: { destination?: string } | undefined;
+  /** `email` pre-fills the request step when arriving from Sign In. */
+  ResetPassword: { email?: string } | undefined;
+  /** Opens one legal document. Each is reached directly — by its own link in
+   *  the signup consent line, or its own row in Profile — so there is no index. */
+  Legal: { docId: string };
   Main: NavigatorScreenParams<TabParamList> | undefined;
   NewScript: undefined;
   Parsing: { id: string };

@@ -9,15 +9,15 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: themes.paper,
-  mode: 'paper',
+  theme: themes.light,
+  mode: 'light',
   setMode: () => {},
   toggle: () => {},
 });
 
 export function ThemeProvider({
   children,
-  initial = 'paper',
+  initial = 'light',
 }: {
   children: ReactNode;
   initial?: ThemeMode;
@@ -28,7 +28,7 @@ export function ThemeProvider({
       mode,
       theme: themes[mode],
       setMode,
-      toggle: () => setMode((m) => (m === 'paper' ? 'stage' : 'paper')),
+      toggle: () => setMode((m) => (m === 'light' ? 'stage' : 'light')),
     }),
     [mode]
   );

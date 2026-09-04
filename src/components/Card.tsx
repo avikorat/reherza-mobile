@@ -1,7 +1,7 @@
 import React, { type ReactNode } from 'react';
 import { View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { useTheme } from '../ThemeContext';
-import { radii } from '../theme';
+import { radii, shadows } from '../theme';
 
 interface CardProps {
   children: ReactNode;
@@ -10,24 +10,23 @@ interface CardProps {
   selected?: boolean;
 }
 
-// Surface card with border + soft shadow. Matches the paper/stage panels.
+// The web's `Card`: `rounded-xl border bg-card shadow`. A white surface on the
+// slate page, held by a 1px slate-200 border and a slate-tinted shadow — never
+// a gradient, per the palette guide's warning against gradient wallpaper.
+// `selected` swaps the border to brand blue and tints the fill at primary/10,
+// matching how the web marks a chosen role or line.
 export default function Card({ children, style, padding = 16, selected }: CardProps) {
   const { theme } = useTheme();
   return (
     <View
       style={[
         styles.card,
+        shadows.card,
         {
-          backgroundColor: theme.surface,
+          backgroundColor: selected ? theme.accentBg : theme.surface,
           borderColor: selected ? theme.accent : theme.border,
-          borderWidth: selected ? 1.5 : 1,
+          borderWidth: 1,
           padding,
-          shadowColor: theme.shadow,
-        },
-        selected && {
-          shadowColor: theme.accent,
-          shadowOpacity: 0.08,
-          shadowRadius: 6,
         },
         style,
       ]}
@@ -38,11 +37,5 @@ export default function Card({ children, style, padding = 16, selected }: CardPr
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: radii.card,
-    shadowOpacity: 0.5,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
+  card: { borderRadius: radii.card },
 });

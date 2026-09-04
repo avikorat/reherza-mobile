@@ -1,10 +1,11 @@
 # Reherza — React Native (Expo) app
 
-A production-ready React Native codebase converting the Reherza high-fidelity
-mockups into a real iOS + Android app. Built with Expo, React Navigation, and
-`expo-linear-gradient`. The full design system (colors, typography, the
-signature brand gradient, and both **Paper** and **Stage** themes) is encoded so
-every screen stays on-brand and theme-switchable at runtime.
+A production-ready React Native codebase for the Reherza iOS + Android app.
+Built with Expo, React Navigation, and `expo-linear-gradient`.
+
+The design system is a direct port of the web product's — every colour resolves
+to a token that also exists in `Reherza/frontend/src/styles/theme.css`, so the
+two clients re-skin together. See **Design system** below.
 
 ## Quick start
 
@@ -74,20 +75,21 @@ eas build --platform android   # Play Store / APK
 **Flow:** New Script · Parsing · Script Detail · Script Editor
 **Immersive:** Rehearsal Room (AI-speaking + your-turn states) · Studio self-tape · Take Review · Session Results
 
-The Home Paper/Stage and Session Results Paper/Stage variants from the mockups
-are handled by the **runtime theme switch** rather than duplicate screens — tap
-the avatar on Home, or use **Appearance** in Profile, to flip themes.
+The web app ships a single light theme; mobile adds **Stage**, built from the
+landing page's dark-section surfaces (`--rz-stage*`), for rehearsing in a dark
+room. Both are the same tokens — tap the avatar on Home, or use **Appearance**
+in Profile, to flip. Immersive screens (Parsing, Studio) are always on Stage.
 
 ## Project structure
 
 ```
 reherza-native/
-├── App.js                     # Fonts, theme provider, navigation container
+├── App.tsx                    # Fonts, theme provider, navigation container
 ├── app.json                   # Expo config (bundle ids, splash)
 ├── src/
-│   ├── theme.js               # Design tokens: palettes, gradient, fonts, radii
-│   ├── ThemeContext.js        # useTheme() + Paper/Stage toggle
-│   ├── data.js                # Sample content — swap for your API
+│   ├── theme.ts               # Design tokens: palette, gradient, fonts, radii
+│   ├── ThemeContext.tsx       # useTheme() + Light/Stage toggle
+│   ├── lib/scoreColors.ts     # 0-100 score → band colour + label
 │   ├── components/            # GradientButton, Field, Card, Badge, Waveform, Bits…
 │   ├── navigation/            # RootNavigator (stack) + TabNavigator (tabs)
 │   └── screens/               # One file per screen
@@ -95,13 +97,32 @@ reherza-native/
 
 ## Design system notes
 
-- **Brand gradient** `#F5A623 → #E0561B → #C21807 → #9B111E` drives every primary
-  action (`<GradientButton>`).
-- **Fonts:** Archivo (UI/headings) + Playfair Display (stat numbers & spoken
-  lines), loaded via `@expo-google-fonts`.
-- **Themes:** `paper` (warm light) and `stage` (theatrical dark) live in
-  `theme.js`. Read colors with `const { theme } = useTheme()`; never hard-code.
-- **Icons:** `@expo/vector-icons` (Feather) — no hand-drawn SVGs to maintain.
+`src/theme.ts` is the single source of truth and mirrors the web's
+`styles/theme.css`. Read colours with `const { theme } = useTheme()` — never
+hard-code a hex outside `theme.ts`. The rules it inherits from the web palette:
+
+1. **Brand blue `#2563EB` is the only colour that means "interactive."** Nothing
+   untappable uses it, and no data encoding may use it.
+2. **One gradient.** The blue→cyan sweep (`brandGradient`) is reserved for hero
+   moments: the primary CTA, the plan hero, the progress fill, the mic button,
+   avatars. Not on every card — that restraint is what keeps it a highlight
+   rather than wallpaper. Use `gradientStart/End` for the 90° sweep,
+   `diagonalStart/End` for the 135° one on large rectangles.
+3. **Status colours sit outside the brand ramp**, so a failing state never reads
+   as "on brand". Each has a readable TEXT step and a brighter FILL step; they
+   are not interchangeable (amber-500 as text is 2.15:1).
+4. **The "rec" dot stays red.** It is a recording light, not a brand accent, and
+   it never means "error".
+5. **Scores use the ramp in `lib/scoreColors.ts`** — monotonic, no blue, one set
+   of thresholds so a colour and its label can never disagree.
+6. **Line ownership is a role, not a hue.** `tpYou` / `tpPartner` colour the
+   teleprompter, the editor's Me/AI toggle and the rehearsal room together, so
+   an actor can tell their line from the AI's mid-take.
+
+- **Type:** Manrope, the one project typeface — weight carries the hierarchy.
+  There is deliberately no second display face.
+- **Icons:** `@expo/vector-icons` (Feather). The only hand-drawn SVG is
+  `GoogleMark`, which has to keep Google's own brand colours.
 
 ## Wiring up real functionality
 

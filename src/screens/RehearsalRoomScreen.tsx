@@ -9,7 +9,15 @@ import { ProgressBar } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { Projects, Sessions, Speech, Tts, Voices, lineAccuracy, playableLines } from '../api';
 import { playBase64, stopPlayback, startRecording, stopRecording } from '../lib/audio';
-import { fonts, warmGradient, radii } from '../theme';
+import {
+  fonts,
+  radii,
+  palette,
+  brandGradient,
+  brandGradientLocations,
+  diagonalStart,
+  diagonalEnd,
+} from '../theme';
 import type { LineResult, PlayableLine, Project, RootStackParamList, Session, SessionFeedback } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RehearsalRoom'>;
@@ -265,7 +273,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
           {project?.title}
         </Text>
         <TouchableOpacity onPress={() => void finish(false)}>
-          <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>End</Text>
+          <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.destructive }}>End</Text>
         </TouchableOpacity>
       </View>
 
@@ -276,10 +284,33 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
         Line {idx + 1} of {lines.length}
       </Text>
 
+      {/* Line ownership is carried by colour, per the web's teleprompter tokens:
+          the scene partner is cyan (--tp-partner), your line is brand blue
+          (--tp-you). A TTS failure is a status, so it steps out to warning. */}
       {aiTurn ? (
-        <View style={[styles.focusBanner, { backgroundColor: theme.accentBg, borderColor: theme.accentRing }]}>
-          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.accent }} />
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.accent }}>
+        <View
+          style={[
+            styles.focusBanner,
+            ttsFailed
+              ? { backgroundColor: theme.warningBg, borderColor: theme.warningFill }
+              : { backgroundColor: theme.tpPartnerBg, borderColor: theme.tpPartner },
+          ]}
+        >
+          <View
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: 4,
+              backgroundColor: ttsFailed ? theme.warningFill : theme.accent2Fill,
+            }}
+          />
+          <Text
+            style={{
+              fontFamily: fonts.semibold,
+              fontSize: 12,
+              color: ttsFailed ? theme.warning : theme.tpPartner,
+            }}
+          >
             {ttsFailed ? 'Voice unavailable · tap below to continue' : 'AI scene partner speaking'}
           </Text>
         </View>
@@ -288,10 +319,10 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
       <View style={styles.stage}>
         {aiTurn ? (
           <>
-            <View style={[styles.aiAvatar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Feather name="volume-2" size={26} color="#F5A623" />
+            <View style={[styles.aiAvatar, { backgroundColor: theme.tpPartnerBg, borderColor: theme.tpPartner }]}>
+              <Feather name="volume-2" size={26} color={theme.tpPartner} />
             </View>
-            <Text style={[styles.speakerLabel, { color: theme.accent }]}>
+            <Text style={[styles.speakerLabel, { color: theme.tpPartner }]}>
               {line.speaker} · SPEAKING
             </Text>
             <View style={{ marginVertical: 20 }}>
@@ -301,7 +332,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
           </>
         ) : (
           <>
-            <Text style={[styles.speakerLabel, { color: theme.accent, marginBottom: 18 }]}>
+            <Text style={[styles.speakerLabel, { color: theme.tpYou, marginBottom: 18 }]}>
               YOUR LINE · {line.speaker}
             </Text>
             <Text style={[styles.spokenLine, { color: theme.text, marginBottom: 10 }]}>"{line.text}"</Text>
@@ -327,8 +358,8 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
             {next ? next.text : 'Scene complete — tap to see your results.'}
           </Text>
           <View style={styles.advanceRow}>
-            <View style={[styles.checkbox, { backgroundColor: theme.accent }]}>
-              <Feather name="check" size={9} color="#fff" />
+            <View style={[styles.checkbox, { backgroundColor: theme.tpSpoken }]}>
+              <Feather name="check" size={9} color={palette.white} />
             </View>
             <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
               {ttsFailed ? 'Tap to continue' : 'Auto-advances when the line ends · tap to skip'}
@@ -339,11 +370,17 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
         <View style={{ alignItems: 'center', gap: 16, paddingBottom: 8 }}>
           <Waveform variant="user" />
           <TouchableOpacity onPress={() => void captureUserLine()} activeOpacity={0.85} disabled={processing}>
-            <LinearGradient colors={warmGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.micBtn}>
+            <LinearGradient
+              colors={brandGradient}
+              locations={brandGradientLocations}
+              start={diagonalStart}
+              end={diagonalEnd}
+              style={styles.micBtn}
+            >
               {processing ? (
-                <ActivityIndicator color="#fff" size="large" />
+                <ActivityIndicator color={palette.white} size="large" />
               ) : (
-                <Feather name="mic" size={40} color="#fff" />
+                <Feather name="mic" size={40} color={palette.white} />
               )}
             </LinearGradient>
           </TouchableOpacity>
@@ -372,12 +409,14 @@ const styles = StyleSheet.create({
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   aiAvatar: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   speakerLabel: { fontFamily: fonts.bold, fontSize: 12, letterSpacing: 1 },
-  spokenLine: { fontFamily: fonts.serif, fontSize: 25, lineHeight: 35, textAlign: 'center', maxWidth: 310 },
+  // The scripted line, set in Manrope like everything else — weight and size
+  // carry the emphasis, not a second typeface.
+  spokenLine: { fontFamily: fonts.medium, fontSize: 25, lineHeight: 35, letterSpacing: -0.3, textAlign: 'center', maxWidth: 310 },
   nextCard: { borderWidth: 1, borderRadius: radii.card, padding: 16 },
   advanceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 11 },
-  checkbox: { width: 15, height: 15, borderRadius: 3, alignItems: 'center', justifyContent: 'center' },
+  checkbox: { width: 15, height: 15, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   micBtn: {
     width: 104, height: 104, borderRadius: 52, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#C21807', shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 0, height: 12 }, elevation: 8,
+    shadowColor: palette.blue, shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8,
   },
 });

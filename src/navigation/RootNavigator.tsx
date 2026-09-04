@@ -8,6 +8,7 @@ import SignInScreen from '../screens/SignInScreen';
 import CreateAccountScreen from '../screens/CreateAccountScreen';
 import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
+import LegalScreen from '../screens/LegalScreen';
 import NewScriptScreen from '../screens/NewScriptScreen';
 import ParsingScreen from '../screens/ParsingScreen';
 import ScriptDetailScreen from '../screens/ScriptDetailScreen';
@@ -32,6 +33,8 @@ export default function RootNavigator() {
       <Stack.Screen name="CreateAccount" component={CreateAccountScreen} />
       <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+      {/* Reachable from Create Account before signing up, and from Profile after. */}
+      <Stack.Screen name="Legal" component={LegalScreen} />
 
       {/* Main app */}
       <Stack.Screen name="Main" component={TabNavigator} />

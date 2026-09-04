@@ -10,7 +10,7 @@ import GradientButton from '../components/GradientButton';
 import OutlineButton from '../components/OutlineButton';
 import { useTheme } from '../ThemeContext';
 import { Storage, SelfTapes, ApiError } from '../api';
-import { fonts } from '../theme';
+import { fonts, radii, palette, stageSurfaces } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TakeReview'>;
@@ -123,7 +123,7 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
           accessibilityRole="button"
           accessibilityLabel={playing ? 'Pause' : 'Play'}
         >
-          <Feather name={playing ? 'pause' : 'play'} size={22} color="#fff" />
+          <Feather name={playing ? 'pause' : 'play'} size={22} color={palette.white} />
         </TouchableOpacity>
         <Text style={styles.duration}>{clock}</Text>
       </View>
@@ -135,8 +135,8 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
       <View style={{ flex: 1 }} />
 
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-        <OutlineButton label="Retake" flex onPress={() => navigation.replace('Studio', { id: projectId })} />
-        <OutlineButton label="Share ↗" flex onPress={() => void exportTape()} />
+        <OutlineButton icon="rotate-ccw" label="Retake" flex onPress={() => navigation.replace('Studio', { id: projectId })} />
+        <OutlineButton secondary icon="share" label="Share" flex onPress={() => void exportTape()} />
       </View>
       {saving ? (
         <View style={{ paddingVertical: 16, alignItems: 'center' }}>
@@ -158,12 +158,13 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   preview: {
-    borderRadius: 18, borderWidth: 1, aspectRatio: 9 / 14, backgroundColor: '#141010',
+    borderRadius: radii.card, borderWidth: 1, aspectRatio: 9 / 14, backgroundColor: stageSurfaces.bg,
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   playBtn: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
   duration: {
-    position: 'absolute', bottom: 12, right: 14, fontFamily: fonts.serif, fontSize: 13,
-    color: 'rgba(255,255,255,0.85)', backgroundColor: 'rgba(0,0,0,0.4)', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 8,
+    position: 'absolute', bottom: 12, right: 14, fontFamily: fonts.semibold, fontSize: 13,
+    color: 'rgba(255,255,255,0.9)', backgroundColor: 'rgba(0,0,0,0.4)', paddingHorizontal: 9, paddingVertical: 3,
+    borderRadius: radii.sm,
   },
 });

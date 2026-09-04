@@ -6,7 +6,7 @@ import { Feather } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType } from 'expo-camera';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Projects, myCharacters, playableLines } from '../api';
-import { fonts, RED_DOT } from '../theme';
+import { fonts, radii, palette, stageSurfaces, RED_DOT } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Studio'>;
@@ -138,7 +138,7 @@ export default function StudioScreen({ navigation, route }: Props) {
       <SafeAreaView style={styles.safe}>
         <StatusBar style="light" />
         <View style={styles.permWrap}>
-          <Feather name="video-off" size={40} color="rgba(255,255,255,0.6)" />
+          <Feather name="video-off" size={40} color={stageSurfaces.onDarkSubtle} />
           <Text style={styles.permTitle}>Camera & mic needed</Text>
           <Text style={styles.permText}>
             Self-tapes record video and audio. Allow camera and microphone access to use the Studio.
@@ -150,10 +150,10 @@ export default function StudioScreen({ navigation, route }: Props) {
             }}
             style={styles.permBtn}
           >
-            <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: '#fff' }}>Allow access</Text>
+            <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: palette.white }}>Allow access</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 14 }}>
-            <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>Go back</Text>
+            <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: stageSurfaces.onDarkSubtle }}>Go back</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -161,7 +161,10 @@ export default function StudioScreen({ navigation, route }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    // The viewfinder is FULL-BLEED: it sits outside the safe area so the frame
+    // the actor composes is the frame that gets recorded, edge to edge. Only
+    // the chrome on top of it is inset — see `chrome` below.
+    <View style={styles.safe}>
       <StatusBar style="light" />
       {granted ? (
         <CameraView
@@ -172,92 +175,102 @@ export default function StudioScreen({ navigation, route }: Props) {
           onCameraReady={() => setReady(true)}
         />
       ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#101012', alignItems: 'center', justifyContent: 'center' }]}>
-          <ActivityIndicator color="#F5A623" />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: stageSurfaces.bg, alignItems: 'center', justifyContent: 'center' }]}>
+          <ActivityIndicator color={palette.cyanBright} />
         </View>
       )}
 
-      <View style={styles.topRow}>
-        <TouchableOpacity onPress={close} style={styles.chip}>
-          <Text style={styles.chipText}>✕ Close</Text>
-        </TouchableOpacity>
-        <View style={styles.chip}>
-          <View style={[styles.recDot, !recording && { backgroundColor: 'rgba(255,255,255,0.4)' }]} />
-          <Text style={styles.chipText}>{recording ? `REC ${clock}` : 'STANDBY'}</Text>
+      {/* Every control sits inside the safe area, over the full-bleed preview:
+          the REC clock clears the notch, the shutter clears the home indicator. */}
+      <SafeAreaView style={styles.chrome}>
+        <View style={styles.topRow}>
+          <TouchableOpacity onPress={close} style={styles.chip}>
+            <Text style={styles.chipText}>✕ Close</Text>
+          </TouchableOpacity>
+          <View style={styles.chip}>
+            <View style={[styles.recDot, !recording && { backgroundColor: 'rgba(255,255,255,0.4)' }]} />
+            <Text style={styles.chipText}>{recording ? `REC ${clock}` : 'STANDBY'}</Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.countWrap} pointerEvents="none">
-        {granted && ready && count > 0 ? <Text style={styles.count}>{count}</Text> : null}
-      </View>
+        <View style={styles.countWrap} pointerEvents="none">
+          {granted && ready && count > 0 ? <Text style={styles.count}>{count}</Text> : null}
+        </View>
 
-      <View style={styles.prompter}>
-        <Text style={styles.prompterLabel}>
-          TELEPROMPTER{prompt ? ` · ${prompt.speaker}` : ''}
-        </Text>
-        <Text style={styles.prompterText} numberOfLines={3}>
-          {prompt ? prompt.text : 'Deliver your line to camera. Tap the red button to finish the take.'}
-        </Text>
-      </View>
+        <View style={styles.prompter}>
+          <Text style={styles.prompterLabel}>
+            TELEPROMPTER{prompt ? ` · ${prompt.speaker}` : ''}
+          </Text>
+          <Text style={styles.prompterText} numberOfLines={3}>
+            {prompt ? prompt.text : 'Deliver your line to camera. Tap the red button to finish the take.'}
+          </Text>
+        </View>
 
-      <View style={styles.controls}>
-        <TouchableOpacity onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} style={styles.sideBtn}>
-          <View style={styles.sideIcon}>
-            <Feather name="repeat" size={22} color="#fff" />
-          </View>
-          <Text style={styles.sideLabel}>Flip</Text>
-        </TouchableOpacity>
+        <View style={styles.controls}>
+          <TouchableOpacity onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} style={styles.sideBtn}>
+            <View style={styles.sideIcon}>
+              <Feather name="repeat" size={22} color={palette.white} />
+            </View>
+            <Text style={styles.sideLabel}>Flip</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={recording ? stop : () => void startRecordingNow()}
-          accessibilityRole="button"
-          accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
-          style={styles.recOuter}
-        >
-          <View style={[styles.recInner, recording && styles.recInnerActive]} />
-        </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={recording ? stop : () => void startRecordingNow()}
+            accessibilityRole="button"
+            accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
+            style={styles.recOuter}
+          >
+            <View style={[styles.recInner, recording && styles.recInnerActive]} />
+          </TouchableOpacity>
 
-        <TouchableOpacity onPress={redo} style={styles.sideBtn}>
-          <View style={styles.sideIcon}>
-            <Feather name="refresh-cw" size={22} color="#fff" />
-          </View>
-          <Text style={styles.sideLabel}>Redo</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+          <TouchableOpacity onPress={redo} style={styles.sideBtn}>
+            <View style={styles.sideIcon}>
+              <Feather name="refresh-cw" size={22} color={palette.white} />
+            </View>
+            <Text style={styles.sideLabel}>Redo</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0b0b0c' },
+  // The Studio is always on stage surfaces — it is chrome over live video, so
+  // the on-video half of the teleprompter tokens applies: your line in white
+  // (--tp-you-on-video), the labels in bright cyan (--tp-partner-on-video).
+  // The normal contrast rules don't hold here; the scrims supply the contrast.
+  safe: { flex: 1, backgroundColor: stageSurfaces.bg },
+  // Transparent inset layer holding the controls above the preview.
+  chrome: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between' },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 8 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,0,0,0.4)', paddingVertical: 7, paddingHorizontal: 13, borderRadius: 999,
   },
-  chipText: { fontFamily: fonts.semibold, fontSize: 13, color: '#fff' },
+  chipText: { fontFamily: fonts.semibold, fontSize: 13, color: palette.white },
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: RED_DOT },
   countWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  count: { fontFamily: fonts.serifBold, fontSize: 120, color: 'rgba(255,255,255,0.9)', lineHeight: 130 },
+  count: { fontFamily: fonts.heavy, fontSize: 120, color: 'rgba(255,255,255,0.9)', lineHeight: 130, letterSpacing: -4 },
   prompter: {
     marginHorizontal: 16, marginBottom: 20, backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 16, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: radii.card, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
-  prompterLabel: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 1, color: '#F5A623', marginBottom: 8 },
-  prompterText: { fontFamily: fonts.regular, fontSize: 19, lineHeight: 28, color: '#fff' },
+  prompterLabel: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 1, color: palette.cyanBright, marginBottom: 8 },
+  prompterText: { fontFamily: fonts.regular, fontSize: 19, lineHeight: 28, color: palette.white },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 34, paddingBottom: 24 },
   sideBtn: { alignItems: 'center', gap: 5 },
-  sideIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
-  sideLabel: { fontFamily: fonts.semibold, fontSize: 10, color: '#fff' },
-  recOuter: { width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  sideIcon: { width: 48, height: 48, borderRadius: radii.tile, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
+  sideLabel: { fontFamily: fonts.semibold, fontSize: 10, color: palette.white },
+  recOuter: { width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: palette.white, alignItems: 'center', justifyContent: 'center' },
   recInner: {
     width: 60, height: 60, borderRadius: 30, backgroundColor: RED_DOT,
     shadowColor: RED_DOT, shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 0 },
   },
   recInnerActive: { width: 34, height: 34, borderRadius: 8 },
   permWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 12 },
-  permTitle: { fontFamily: fonts.heavy, fontSize: 22, color: '#fff' },
-  permText: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 21, color: 'rgba(255,255,255,0.7)', textAlign: 'center' },
-  permBtn: { marginTop: 10, backgroundColor: '#C21807', paddingHorizontal: 26, paddingVertical: 13, borderRadius: 999 },
+  permTitle: { fontFamily: fonts.heavy, fontSize: 22, color: palette.white, letterSpacing: -0.4 },
+  permText: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 21, color: stageSurfaces.onDarkMuted, textAlign: 'center' },
+  permBtn: { marginTop: 10, backgroundColor: palette.blue, paddingHorizontal: 26, paddingVertical: 13, borderRadius: radii.pill },
 });

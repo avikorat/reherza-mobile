@@ -3,39 +3,72 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext';
-import { fonts, warmGradient, RED_DOT } from '../theme';
+import {
+  fonts,
+  radii,
+  brandGradient,
+  brandGradientLocations,
+  gradientStart,
+  gradientEnd,
+  diagonalStart,
+  diagonalEnd,
+  palette,
+  RED_DOT,
+} from '../theme';
 
-// The Reherza wordmark: red dot + name.
+// The Reherza wordmark — the web's `.app-logo`: a red "rec" dot with a glow,
+// then "Reherza" in Manrope bold at -0.01em. The dot is sized in proportion to
+// the wordmark so the lockup scales as one unit. The dot stays RED while the
+// rest of the UI is blue: it is a recording light, not a brand accent.
 export function Logo({ size = 17, color }: { size?: number; color?: string }) {
   const { theme } = useTheme();
-  const dot = size * 0.64;
+  const dot = size * 0.5;
   return (
     <View style={styles.logoRow}>
-      <View style={[styles.dotHalo, { padding: dot * 0.36 }]}>
-        <View style={{ width: dot, height: dot, borderRadius: dot, backgroundColor: RED_DOT }} />
-      </View>
-      <Text style={{ fontFamily: fonts.heavy, fontSize: size + 4, letterSpacing: -0.5, color: color || theme.text }}>
+      <View
+        style={{
+          width: dot,
+          height: dot,
+          borderRadius: dot,
+          backgroundColor: RED_DOT,
+          shadowColor: RED_DOT,
+          shadowOpacity: 0.7,
+          shadowRadius: dot * 0.84,
+          shadowOffset: { width: 0, height: 0 },
+        }}
+      />
+      <Text
+        style={{
+          fontFamily: fonts.bold,
+          fontSize: size + 4,
+          letterSpacing: -0.4,
+          color: color || theme.text,
+        }}
+      >
         Reherza
       </Text>
     </View>
   );
 }
 
-// Gradient initials avatar.
+// Initials avatar on the brand's 135° blue→cyan sweep — a "small decorative
+// highlight" in the palette guide's terms.
 export function Avatar({ initials, size = 40 }: { initials: string; size?: number }) {
   return (
     <LinearGradient
-      colors={warmGradient}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
+      colors={brandGradient}
+      locations={brandGradientLocations}
+      start={diagonalStart}
+      end={diagonalEnd}
       style={{ width: size, height: size, borderRadius: size, alignItems: 'center', justifyContent: 'center' }}
     >
-      <Text style={{ color: '#fff', fontFamily: fonts.heavy, fontSize: size * 0.38 }}>{initials}</Text>
+      <Text style={{ color: palette.white, fontFamily: fonts.bold, fontSize: size * 0.38 }}>{initials}</Text>
     </LinearGradient>
   );
 }
 
-// Circular back button used on stack screens.
+// Back control on stack screens. A plain card-surface square — the web's `ghost`
+// icon button, which carries no brand colour.
 export function BackButton({ onPress }: { onPress: () => void }) {
   const { theme } = useTheme();
   return (
@@ -44,14 +77,15 @@ export function BackButton({ onPress }: { onPress: () => void }) {
       activeOpacity={0.7}
       accessibilityRole="button"
       accessibilityLabel="Go back"
-      style={[styles.back, { backgroundColor: theme.surface, borderColor: theme.borderStrong }]}
+      style={[styles.back, { backgroundColor: theme.surface, borderColor: theme.border }]}
     >
       <Feather name="chevron-left" size={22} color={theme.text} />
     </TouchableOpacity>
   );
 }
 
-// Thin progress bar with a gradient fill.
+// Progress bar with the brand sweep as its fill — one of the few surfaces the
+// palette guide reserves the gradient for.
 export function ProgressBar({
   progress = 0.5,
   height = 9,
@@ -64,11 +98,12 @@ export function ProgressBar({
   const { theme } = useTheme();
   const clamped = Math.min(1, Math.max(0, progress));
   return (
-    <View style={{ height, borderRadius: height / 2, backgroundColor: track || theme.border, overflow: 'hidden' }}>
+    <View style={{ height, borderRadius: height / 2, backgroundColor: track || theme.surfaceAlt, overflow: 'hidden' }}>
       <LinearGradient
-        colors={['#F5A623', theme.accent]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
+        colors={brandGradient}
+        locations={brandGradientLocations}
+        start={gradientStart}
+        end={gradientEnd}
         style={{ width: `${clamped * 100}%`, height: '100%', borderRadius: height / 2 }}
       />
     </View>
@@ -77,9 +112,8 @@ export function ProgressBar({
 
 const styles = StyleSheet.create({
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  dotHalo: { borderRadius: 999, backgroundColor: 'rgba(255,0,0,0.14)' },
   back: {
-    width: 38, height: 38, borderRadius: 12, borderWidth: 1,
+    width: 38, height: 38, borderRadius: radii.control, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
 });

@@ -7,7 +7,7 @@
     "scheme": "reherza",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#0E0B09",
+      "backgroundColor": "#F8FAFC",
       "resizeMode": "contain"
     },
     "assetBundlePatterns": [
@@ -31,7 +31,7 @@
         "android.permission.CAMERA"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#0E0B09"
+        "backgroundColor": "#0F172A"
       }
     },
     "web": {

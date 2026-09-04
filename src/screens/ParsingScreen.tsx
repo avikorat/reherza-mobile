@@ -5,12 +5,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Projects } from '../api';
-import { themes, fonts, RED_DOT } from '../theme';
+import {
+  themes,
+  fonts,
+  RED_DOT,
+  brandGradient,
+  brandGradientLocations,
+  diagonalStart,
+  diagonalEnd,
+  palette,
+} from '../theme';
 import type { Project, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Parsing'>;
 
-const S = themes.stage; // Parsing is always the theatrical dark mood.
+// Parsing always runs on the stage surfaces — the landing page's dark sections.
+const S = themes.stage;
 
 type StepState = 'done' | 'active' | 'pending';
 
@@ -75,7 +85,13 @@ export default function ParsingScreen({ navigation, route }: Props) {
       <StatusBar style="light" />
       <View style={styles.center}>
         <Animated.View style={{ transform: [{ rotate }] }}>
-          <LinearGradient colors={['#F5A623', '#E0561B', '#C21807', '#9B111E']} style={styles.ring}>
+          <LinearGradient
+            colors={brandGradient}
+            locations={brandGradientLocations}
+            start={diagonalStart}
+            end={diagonalEnd}
+            style={styles.ring}
+          >
             <View style={styles.ringInner}>
               <View style={styles.dot} />
             </View>
@@ -89,7 +105,7 @@ export default function ParsingScreen({ navigation, route }: Props) {
           {steps.map((s) => (
             <View key={s.label} style={[styles.step, s.state === 'pending' && { opacity: 0.4 }]}>
               {s.state === 'done' ? (
-                <View style={[styles.stepDot, { backgroundColor: S.success }]}>
+                <View style={[styles.stepDot, { backgroundColor: palette.green }]}>
                   <Text style={styles.check}>✓</Text>
                 </View>
               ) : s.state === 'active' ? (
@@ -125,6 +141,6 @@ const styles = StyleSheet.create({
   steps: { width: '100%', maxWidth: 300, gap: 16 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stepDot: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  stepSpinner: { borderWidth: 2, borderColor: '#F05A19', borderTopColor: 'transparent' },
-  check: { color: '#fff', fontSize: 13, fontFamily: fonts.heavy },
+  stepSpinner: { borderWidth: 2, borderColor: S.accent, borderTopColor: 'transparent' },
+  check: { color: palette.white, fontSize: 13, fontFamily: fonts.heavy },
 });

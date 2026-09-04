@@ -24,7 +24,8 @@ interface FieldProps {
   style?: StyleProp<ViewStyle>;
 }
 
-// Labelled text field matching the mockups. `focused` draws the accent ring.
+// The web's `Input`: `rounded-md border border-input bg-card shadow-sm`, with a
+// 1px brand-blue ring on focus (`focus-visible:ring-ring`).
 export default function Field({
   label,
   value,
@@ -49,13 +50,13 @@ export default function Field({
           styles.field,
           {
             backgroundColor: theme.surface,
-            borderColor: active ? theme.accent : theme.borderStrong,
+            borderColor: active ? theme.accent : theme.border,
             borderWidth: active ? 1.5 : 1,
           },
           active && {
             shadowColor: theme.accent,
-            shadowOpacity: 0.16,
-            shadowRadius: 6,
+            shadowOpacity: 0.18,
+            shadowRadius: 5,
             shadowOffset: { width: 0, height: 0 },
             elevation: 2,
           },
@@ -92,14 +93,14 @@ export default function Field({
 
 const styles = StyleSheet.create({
   label: {
-    fontFamily: fonts.bold,
+    fontFamily: fonts.semibold,
     fontSize: 11,
-    letterSpacing: 1,
+    letterSpacing: 0.9,
     marginBottom: 7,
   },
   field: {
     borderRadius: radii.field,
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingVertical: 4,
     flexDirection: 'row',
     alignItems: 'center',

@@ -7,20 +7,21 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Field from '../components/Field';
 import GradientButton from '../components/GradientButton';
+import GoogleMark from '../components/GoogleMark';
 import { BackButton } from '../components/Bits';
+import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
 import { ApiError } from '../api';
 import { useSocialAuth } from '../lib/socialAuth';
-import { TERMS_URL, PRIVACY_URL } from '../config';
-import { fonts, radii } from '../theme';
+import { LEGAL_DOCUMENTS } from '../legal';
+import { fonts, radii, palette } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateAccount'>;
@@ -34,7 +35,21 @@ export default function CreateAccountScreen({ navigation }: Props) {
   const [form, setForm] = useState({ first: '', last: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Explicit affirmative consent, matching the web's signup checkbox. The
+  // server enforces this independently (422 without a current set), but the
+  // acceptance has to be a real action the user took, not an inference.
+  const [accepted, setAccepted] = useState(false);
   const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  // A first-time Google/Apple sign-in creates an account too, so it passes
+  // through the same gate — the server checks at account creation, not at the
+  // form. Blocking here gives a reason instead of a 422 from a button with no
+  // visible terms attached to it.
+  const requireAcceptance = (): boolean => {
+    if (accepted) return true;
+    setError('Please accept the terms below to continue.');
+    return false;
+  };
 
   const onSocialToken = async (idToken: string) => {
     await signInWithCognito(idToken);
@@ -51,14 +66,27 @@ export default function CreateAccountScreen({ navigation }: Props) {
       setError('Fill in your name and email, and pick a password of 8+ characters.');
       return;
     }
+    if (!requireAcceptance()) return;
     setBusy(true);
     setError(null);
     try {
-      await signUp(name, form.email.trim(), form.password);
-      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+      const res = await signUp(form.first, form.last, form.email, form.password);
+      // A pool that auto-confirms signs the user straight in; the usual case
+      // emails a code and hands off to VerifyEmail.
+      if (res.status === 'signedIn') {
+        navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+      } else {
+        navigation.navigate('VerifyEmail', { destination: res.destination });
+      }
     } catch (e) {
       if (e instanceof ApiError && (e.body as { code?: string } | null)?.code === 'signups_closed') {
         Alert.alert('Signups are full', e.message);
+      } else if (e instanceof ApiError && e.status === 422) {
+        // The server's required versions are ahead of this build's registry
+        // (src/legal.ts). Nothing the user can fix by retrying.
+        setError('The terms have been updated. Please update Reherza to continue.');
+        setBusy(false);
+        return;
       }
       setError(e instanceof Error ? e.message : 'Registration failed.');
     } finally {
@@ -67,9 +95,14 @@ export default function CreateAccountScreen({ navigation }: Props) {
   };
 
   return (
-    <Screen>
+    <Screen keyboardAvoiding>
       <BackButton onPress={() => navigation.goBack()} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <Text style={[styles.h1, { color: theme.text }]}>Join the company.</Text>
         <Text style={[styles.sub, { color: theme.muted }]}>Create your rehearsal studio in under a minute.</Text>
 
@@ -81,7 +114,7 @@ export default function CreateAccountScreen({ navigation }: Props) {
         <Field label="EMAIL" value={form.email} onChangeText={set('email')} placeholder="you@example.com" keyboardType="email-address" style={{ marginBottom: 14 }} />
         <Field label="PASSWORD" value={form.password} onChangeText={set('password')} secure showToggle placeholder="Choose a password (8+ chars)" style={{ marginBottom: 14 }} />
 
-        {error ? <Text style={[styles.error, { color: theme.accent }]}>{error}</Text> : null}
+        {error ? <Text style={[styles.error, { color: theme.destructive }]}>{error}</Text> : null}
 
         {busy ? (
           <View style={{ paddingVertical: 16, alignItems: 'center' }}>
@@ -93,14 +126,19 @@ export default function CreateAccountScreen({ navigation }: Props) {
 
         <TouchableOpacity
           activeOpacity={0.85}
-          onPress={() => (google.available ? google.prompt() : Alert.alert('Google sign-up', UNCONFIGURED_MESSAGE))}
-          style={[styles.social, { borderColor: theme.borderStrong, backgroundColor: theme.surface }]}
+          onPress={() => {
+            if (!requireAcceptance()) return;
+            google.available
+              ? google.prompt()
+              : Alert.alert('Google sign-up', UNCONFIGURED_MESSAGE);
+          }}
+          style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
         >
           {google.busy ? (
             <ActivityIndicator size="small" color={theme.accent} />
           ) : (
             <>
-              <Text style={{ fontFamily: fonts.heavy, fontSize: 16, color: '#4285F4' }}>G</Text>
+              <GoogleMark size={17} />
               <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.text }}>Sign up with Google</Text>
             </>
           )}
@@ -109,7 +147,12 @@ export default function CreateAccountScreen({ navigation }: Props) {
         {Platform.OS === 'ios' ? (
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() => (apple.available ? apple.prompt() : Alert.alert('Sign in with Apple', UNCONFIGURED_MESSAGE))}
+            onPress={() => {
+            if (!requireAcceptance()) return;
+            apple.available
+              ? apple.prompt()
+              : Alert.alert('Sign in with Apple', UNCONFIGURED_MESSAGE);
+          }}
             style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent', marginTop: 0, marginBottom: 22 }]}
           >
             {apple.busy ? (
@@ -125,35 +168,61 @@ export default function CreateAccountScreen({ navigation }: Props) {
           </TouchableOpacity>
         ) : null}
 
-        <Text style={[styles.terms, { color: theme.muted }]}>
-          By continuing you agree to our{' '}
-          <Text
-            style={{ color: theme.accent, fontFamily: fonts.semibold }}
-            onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}
+        {/* The consent gate. Every document the server requires is named here
+            and readable in-app before signing — no "by continuing" inference. */}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            setAccepted((a) => !a);
+            setError(null);
+          }}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: accepted }}
+          accessibilityLabel="I agree to the Reherza terms"
+          style={styles.consentRow}
+        >
+          <View
+            style={[
+              styles.checkbox,
+              accepted
+                ? { backgroundColor: theme.accent, borderColor: theme.accent }
+                : { borderColor: theme.borderStrong },
+            ]}
           >
-            Terms
-          </Text>{' '}
-          &{' '}
-          <Text
-            style={{ color: theme.accent, fontFamily: fonts.semibold }}
-            onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})}
-          >
-            Privacy
+            {accepted ? <Feather name="check" size={13} color={palette.white} /> : null}
+          </View>
+          <Text style={[styles.terms, { color: theme.muted }]}>
+            I agree to Reherza's{' '}
+            {LEGAL_DOCUMENTS.map((d, i) => (
+              <Text key={d.id}>
+                <Text
+                  style={{ color: theme.accent, fontFamily: fonts.semibold }}
+                  onPress={() => navigation.navigate('Legal', { docId: d.id })}
+                >
+                  {d.title}
+                </Text>
+                {i < LEGAL_DOCUMENTS.length - 2 ? ', ' : i === LEGAL_DOCUMENTS.length - 2 ? ' and ' : '.'}
+              </Text>
+            ))}
           </Text>
-          .
-        </Text>
+        </TouchableOpacity>
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  h1: { fontFamily: fonts.heavy, fontSize: 30, letterSpacing: -0.9, lineHeight: 32, marginTop: 22, marginBottom: 6 },
+  h1: { fontFamily: fonts.heavy, fontSize: 30, letterSpacing: -0.7, lineHeight: 34, marginTop: 22, marginBottom: 6 },
   sub: { fontFamily: fonts.regular, fontSize: 15, marginBottom: 26 },
   error: { fontFamily: fonts.semibold, fontSize: 13, marginBottom: 12, textAlign: 'center' },
   social: {
     flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderRadius: radii.pill, paddingVertical: 14, marginTop: 12, marginBottom: 12,
   },
-  terms: { fontFamily: fonts.regular, fontSize: 12, textAlign: 'center', lineHeight: 18, marginTop: 10 },
+  terms: { flex: 1, fontFamily: fonts.regular, fontSize: 12, lineHeight: 18 },
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 14 },
+  checkbox: {
+    width: 20, height: 20, borderRadius: radii.sm, borderWidth: 1.5,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
 });

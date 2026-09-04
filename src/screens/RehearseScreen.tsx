@@ -3,14 +3,22 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { useBottomTabBarHeight, type BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import Screen from '../components/Screen';
+import Screen, { SCREEN_EDGES_TABS } from '../components/Screen';
 import Card from '../components/Card';
 import Badge from '../components/Badge';
 import { useTheme } from '../ThemeContext';
 import { Projects, myCharacters, playableLines } from '../api';
-import { fonts, warmGradient } from '../theme';
+import {
+  fonts,
+  radii,
+  palette,
+  brandGradient,
+  brandGradientLocations,
+  diagonalStart,
+  diagonalEnd,
+} from '../theme';
 import type { Project, RootStackParamList, TabParamList } from '../types';
 
 type Props = CompositeScreenProps<
@@ -21,6 +29,10 @@ type Props = CompositeScreenProps<
 // The Rehearse tab: a launcher for jumping straight into a scene.
 export default function RehearseScreen({ navigation }: Props) {
   const { theme } = useTheme();
+  // The tab bar floats over the screen, so scroll content has to end above
+  // it. This is the bar's real height (content + the device's bottom inset),
+  // so it can't drift from the navigator's own config.
+  const tabBarHeight = useBottomTabBarHeight();
   const [projects, setProjects] = useState<Project[] | null>(null);
 
   useFocusEffect(
@@ -34,10 +46,10 @@ export default function RehearseScreen({ navigation }: Props) {
   const ready = (projects || []).filter((p) => p.parseStatus === 'ready');
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} edges={SCREEN_EDGES_TABS}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 110, gap: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: tabBarHeight + 24, gap: 16 }}
       >
         <View>
           <Text style={[styles.h1, { color: theme.text }]}>Rehearse</Text>
@@ -65,8 +77,14 @@ export default function RehearseScreen({ navigation }: Props) {
             return (
               <TouchableOpacity key={p.id} activeOpacity={0.9} onPress={() => navigation.navigate('RehearsalRoom', { id: p.id })}>
                 <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                  <LinearGradient colors={warmGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.icon}>
-                    <Feather name="mic" size={20} color="#fff" />
+                  <LinearGradient
+                    colors={brandGradient}
+                    locations={brandGradientLocations}
+                    start={diagonalStart}
+                    end={diagonalEnd}
+                    style={styles.icon}
+                  >
+                    <Feather name="mic" size={20} color={palette.white} />
                   </LinearGradient>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>{p.title}</Text>
@@ -91,9 +109,9 @@ export default function RehearseScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  h1: { fontFamily: fonts.heavy, fontSize: 28, letterSpacing: -0.9, marginTop: 6, marginBottom: 3 },
+  h1: { fontFamily: fonts.heavy, fontSize: 28, letterSpacing: -0.6, marginTop: 6, marginBottom: 3 },
   sub: { fontFamily: fonts.regular, fontSize: 13.5 },
-  icon: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  icon: { width: 46, height: 46, borderRadius: radii.tile, alignItems: 'center', justifyContent: 'center' },
   title: { fontFamily: fonts.bold, fontSize: 16 },
   hint: { fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 19, marginTop: 4 },
 });

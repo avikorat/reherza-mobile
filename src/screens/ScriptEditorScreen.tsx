@@ -8,7 +8,7 @@ import GradientButton from '../components/GradientButton';
 import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { Projects } from '../api';
-import { fonts, radii } from '../theme';
+import { fonts, radii, palette } from '../theme';
 import type { ParsedLine, Project, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptEditor'>;
@@ -16,16 +16,19 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ScriptEditor'>;
 type Mode = 'AI' | 'Me';
 const MODES: Mode[] = ['AI', 'Me'];
 
+// Who owns this line. The two states take the teleprompter's ownership colours
+// so the editor and the rehearsal room agree: your line is brand blue, the AI
+// partner's is cyan.
 function Segmented({ value, onChange }: { value: Mode; onChange: (mode: Mode) => void }) {
   const { theme } = useTheme();
   return (
-    <View style={[styles.seg, { backgroundColor: theme.bg }]}>
+    <View style={[styles.seg, { backgroundColor: theme.surfaceAlt }]}>
       {MODES.map((m) => {
         const active = value === m;
-        const bg = m === 'Me' ? theme.accent : theme.text;
+        const bg = m === 'Me' ? theme.accent : theme.accent2;
         return (
           <TouchableOpacity key={m} onPress={() => onChange(m)} style={[styles.segItem, active && { backgroundColor: bg }]}>
-            <Text style={{ fontFamily: active ? fonts.bold : fonts.semibold, fontSize: 10, color: active ? '#fff' : theme.muted }}>{m}</Text>
+            <Text style={{ fontFamily: active ? fonts.bold : fonts.semibold, fontSize: 10, color: active ? palette.white : theme.muted }}>{m}</Text>
           </TouchableOpacity>
         );
       })}
@@ -107,7 +110,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
         <BackButton onPress={() => navigation.goBack()} />
         <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: theme.text }}>Edit lines</Text>
         <TouchableOpacity onPress={reprocess}>
-          <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Reprocess</Text>
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.accent }}>Reprocess</Text>
         </TouchableOpacity>
       </View>
 
@@ -122,7 +125,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
             <Card key={`${line.lineIndex ?? i}`} selected={mine} padding={13}>
               <View style={styles.lineHead}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                  <Text numberOfLines={1} style={{ fontFamily: fonts.heavy, fontSize: 12, letterSpacing: 0.4, color: mine ? theme.accent : theme.muted, maxWidth: 130 }}>
+                  <Text numberOfLines={1} style={{ fontFamily: fonts.bold, fontSize: 12, letterSpacing: 0.4, color: mine ? theme.accent : theme.accent2, maxWidth: 130 }}>
                     {line.speaker}
                   </Text>
                   {line.emotion ? <Badge variant={mine ? 'soft' : 'outline'} label={line.emotion} /> : null}
