@@ -23,7 +23,7 @@ export default function Card({ children, style, padding = 16, selected }: CardPr
         styles.card,
         shadows.card,
         {
-          backgroundColor: selected ? theme.accentBg : theme.surface,
+          backgroundColor: selected ? theme.accentSurface : theme.surface,
           borderColor: selected ? theme.accent : theme.border,
           borderWidth: 1,
           padding,

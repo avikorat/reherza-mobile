@@ -21,6 +21,11 @@ export interface ParsedLine {
   intensity?: number;
   spoken?: boolean;
   confidence?: number;
+  /** Stage direction; never spoken, passed to TTS / the analyzer as context. */
+  action?: string;
+  note?: string;
+  deliveryNote?: string;
+  audioTags?: string[];
 }
 
 export type PlayableLine = ParsedLine & { mine: boolean };
@@ -85,30 +90,117 @@ export interface TtsResult {
 export interface TranscriptResult {
   transcript: string;
   confidence?: number;
+  attestation?: string;
 }
 
+/** The audio-scorable delivery parameter matrix (0-100 each; null = not assessable). */
+export interface DeliveryScores {
+  paceRhythm: number | null;
+  pitchIntonation: number | null;
+  volumeProjection: number | null;
+  toneTimbre: number | null;
+  articulation: number | null;
+  subtextDelivery: number | null;
+  authenticity: number | null;
+  reactivity: number | null;
+  intentionClarity: number | null;
+  givenCircumstances: number | null;
+  memorization: number | null;
+}
+
+export interface DeliveryAnalysis {
+  intendedEmotion: string;
+  deliveredEmotion: string;
+  scores?: DeliveryScores;
+  overall?: number;
+  coachNote: string;
+  strengths?: string[];
+  improvements?: Array<{ area: string; note: string; tryThis: string }>;
+  retakeFocus?: string;
+  attestation?: string;
+  /** legacy shape */
+  emotionMatch?: number;
+  clarity?: number;
+  pace?: string;
+  pronunciationNotes?: string[];
+}
+
+// One performed user line. The client sends placeholders for the scored
+// fields; the server recomputes them on the session PATCH.
 export interface LineResult {
   lineIndex: number;
   speaker: string;
   expected: string;
-  spoken: string | null;
+  spoken: string;
   analyzed: boolean;
-  accuracy: number | null;
+  accuracy: number;
+  confidence?: number;
+  durationMs?: number;
+  longPauses?: number;
+  timeToFirstSpeechMs?: number;
+  transcriptAttestation?: string;
+  missingWords?: string[];
+  extraWords?: string[];
+  repeatedWords?: string[];
+  changedWords?: Array<{ from: string; to: string }>;
+  fillerWords?: Array<{ word: string; count: number }>;
+  fillerCount?: number;
+  wpm?: number;
+  lowConfidenceWords?: string[];
+  issues?: string[];
+  delivery?: DeliveryAnalysis;
 }
+
+export interface RecordingClip {
+  lineIndex: number;
+  speaker: string;
+  role: 'user' | 'ai';
+  text: string;
+  objectPath: string;
+  mimeType: string;
+}
+
+export interface SessionCoaching {
+  summary: string;
+  focusAreas: Array<{ area: string; note: string; drill: string }>;
+  encouragement: string;
+  sceneScores?: {
+    emotionalArc: number | null;
+    characterConsistency: number | null;
+    arcNote: string;
+    consistencyNote: string;
+  };
+}
+
+export interface DeliveryMatrix {
+  parameters: Array<{ key: keyof DeliveryScores; label: string; category: string; value: number | null; assessedLines: number }>;
+  categories: Array<{ category: string; value: number | null; parameters: DeliveryMatrix['parameters'] }>;
+  overall: number | null;
+  analyzedCount: number;
+}
+
+export type AnalysisSkippedReason = 'limit' | 'declined' | 'budget';
 
 export interface SessionFeedback {
   linesCompleted: number;
   totalLines: number;
   redoCount: number;
   durationSeconds: number;
-  confidenceScore: number;
+  /** Null when the analysis was withheld (declined / allowance / budget). */
+  confidenceScore: number | null;
   notes: string;
+  version?: number;
+  analyzedLines?: number;
   lines?: LineResult[];
   metrics?: Record<string, number>;
-  scores?: Record<string, number>;
+  scores?: Partial<Record<'accuracy' | 'memorization' | 'pacing' | 'fluency' | 'confidence' | 'completion', number>>;
   coaching?: { summary?: string; strengths?: string[]; improvements?: string[]; practicePlan?: string };
+  sessionCoaching?: SessionCoaching;
+  weakLineIndices?: number[];
+  recording?: { clips: RecordingClip[] };
+  deliveryMatrix?: DeliveryMatrix;
   analysisSkipped?: boolean;
-  analysisSkippedReason?: string;
+  analysisSkippedReason?: AnalysisSkippedReason;
 }
 
 export interface Session {
@@ -132,6 +224,8 @@ export interface UsageInfo {
   exceeded: boolean;
   analysesExceeded: boolean;
   isMasterAdmin: boolean;
+  charsExceeded?: boolean;
+  creditsRemainingMilli?: number;
 }
 
 export interface Plan {
@@ -196,8 +290,9 @@ export type RootStackParamList = {
   Parsing: { id: string };
   ScriptDetail: { id: string };
   ScriptEditor: { id: string };
-  RehearsalRoom: { id: string };
-  SessionResults: { projectId: string; title?: string; feedback: SessionFeedback };
+  /** `focus` = original line indices of the weak lines to re-run (focus mode). */
+  RehearsalRoom: { id: string; focus?: number[] };
+  SessionResults: { projectId: string; sessionId: string };
   Studio: { id?: string } | undefined;
   TakeReview: { id?: string; uri: string; durationMs: number };
   Billing: undefined;

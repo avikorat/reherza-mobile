@@ -141,6 +141,9 @@ export interface Theme {
   accent2Fill: string;
   accentBg: string;
   accentRing: string;
+  /** `accentBg` pre-blended over `surface` — an OPAQUE tint for elevated
+   *  cards. Android draws elevation shadows through translucent fills. */
+  accentSurface: string;
 
   success: string;
   successBg: string;
@@ -187,6 +190,7 @@ const light: Theme = {
   accent2Fill: palette.cyan,
   accentBg: 'rgba(37,99,235,0.10)',   // primary/10
   accentRing: 'rgba(37,99,235,0.25)', // primary/25
+  accentSurface: '#F2F6FE',           // primary/5 over white
 
   success: palette.greenText,
   successBg: 'rgba(34,197,94,0.10)',
@@ -230,6 +234,7 @@ const stage: Theme = {
   accent2Fill: palette.cyan,
   accentBg: 'rgba(96,165,250,0.14)',
   accentRing: 'rgba(96,165,250,0.30)',
+  accentSurface: '#243550',           // blue-400/14 over slate-800
 
   success: '#4ADE80',
   successBg: 'rgba(34,197,94,0.16)',

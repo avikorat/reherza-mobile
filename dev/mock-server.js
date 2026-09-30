@@ -164,9 +164,32 @@ http.createServer((req, res) => {
     if (seg[0] === 'projects' && seg[2] === 'sessions' && seg[3]) {
       const s = sessions.get(seg[3]);
       if (!s) return send(res, 404, { error: 'Not found' });
-      if (req.method === 'PATCH') { Object.assign(s, body); return send(res, 200, s); }
+      if (seg[4] === 'coach-summary') {
+        s.feedback.sessionCoaching = { summary: 'You warmed into the scene by the third exchange.', focusAreas: [{ area: 'pitchIntonation', note: 'Endings drop away.', drill: 'Read every line ending as a question, then as a statement.' }], encouragement: 'The instincts are right — trust them earlier.', sceneScores: { emotionalArc: 71, characterConsistency: 78, arcNote: 'Builds late.', consistencyNote: 'Steady voice.' } };
+        return send(res, 200, s.feedback.sessionCoaching);
+      }
+      if (req.method === 'PATCH') {
+        // The real API recomputes every score from the placeholders; fake that here.
+        Object.assign(s, body);
+        const fb = s.feedback || {};
+        const lines = fb.lines || [];
+        if (!fb.analysisSkipped && lines.some((l) => l.analyzed)) {
+          fb.confidenceScore = 76;
+          fb.scores = { accuracy: 81, memorization: 84, pacing: 72, fluency: 70, confidence: 76, completion: Math.round((fb.linesCompleted / fb.totalLines) * 100) };
+          fb.coaching = { summary: 'Solid run with a clear path to sharper.', strengths: ['Words are landing'], improvements: ['Hold the beat before your second line'], practicePlan: 'Run the weak lines twice, slower.' };
+          fb.weakLineIndices = lines.filter((l) => l.analyzed).slice(0, 1).map((l) => l.lineIndex);
+          const scored = lines.filter((l) => l.delivery && l.delivery.scores);
+          if (scored.length) {
+            const keys = Object.keys(scored[0].delivery.scores);
+            const parameters = keys.map((key) => { const vs = scored.map((l) => l.delivery.scores[key]).filter((v) => typeof v === 'number'); return { key, label: key, category: 'x', value: vs.length ? Math.round(vs.reduce((a, b) => a + b, 0) / vs.length) : null, assessedLines: vs.length }; });
+            fb.deliveryMatrix = { parameters, categories: [], overall: 74, analyzedCount: scored.length };
+          }
+        }
+        return send(res, 200, s);
+      }
       return send(res, 200, s);
     }
+    if (seg[0] === 'projects' && seg[2] === 'analysis-price') return send(res, 200, { milli: 1000, analysesUsed: 2, freeAnalysesPerScript: 1 });
     if (seg[0] === 'projects' && seg[2] === 'voices') {
       const list = projectVoices.get(seg[1]) || [];
       if (req.method === 'POST') {
@@ -199,8 +222,19 @@ http.createServer((req, res) => {
         { voiceId: 'v-rachel', name: 'Rachel', description: 'warm, natural', gender: 'female', accent: 'american' },
       ]);
     if (path === '/tts') return send(res, 200, { audioBase64: WAV_B64, mimeType: 'audio/wav', mock: true, cached: false });
-    if (path === '/tts/pregenerate') return send(res, 200, { total: (body.lines || []).length, generated: (body.lines || []).length, cached: 0, limitReached: false });
+    if (path === '/tts/pregenerate') return send(res, 200, { ready: true, total: (body.lines || []).length, generated: (body.lines || []).length, cached: 0, requiredCharacters: 500, remainingCharacters: 50000 });
+    if (path === '/tts/preflight') return send(res, 200, { allowed: true });
     if (path === '/transcribe') return send(res, 200, { transcript: "North Beckley and no I've got all the time in the world", confidence: 0.95 });
+    if (path === '/analyze-delivery') {
+      if (!body.analysisId) return send(res, 400, { error: 'analysisId required' });
+      return send(res, 200, {
+        intendedEmotion: 'wary', deliveredEmotion: 'flat', overall: 74,
+        scores: { paceRhythm: 80, pitchIntonation: 62, volumeProjection: 78, toneTimbre: 70, articulation: 85, subtextDelivery: 66, authenticity: 72, reactivity: 70, intentionClarity: 79, givenCircumstances: null, memorization: 88 },
+        coachNote: 'Good tension — let the last word land.', strengths: ['Clear diction on the opening beat'],
+        improvements: [{ area: 'pitchIntonation', note: 'The line flattens at the end.', tryThis: 'Lift the last word as a question.' }],
+        retakeFocus: 'Play the suspicion, not the politeness.',
+      });
+    }
 
     // ── usage / billing ──
     if (path === '/usage/me')

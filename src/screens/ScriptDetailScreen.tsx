@@ -11,8 +11,9 @@ import GradientButton from '../components/GradientButton';
 import OutlineButton from '../components/OutlineButton';
 import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
-import { ApiError, Projects, Tts, Voices, myCharacters, playableLines } from '../api';
+import { ApiError, Projects, Sessions, Tts, Voices, myCharacters, playableLines } from '../api';
 import { playBase64 } from '../lib/audio';
+import { scoreText } from '../lib/scoreColors';
 import {
   fonts,
   radii,
@@ -22,7 +23,7 @@ import {
   diagonalStart,
   diagonalEnd,
 } from '../theme';
-import type { Project, RootStackParamList, Voice, VoiceAssignment } from '../types';
+import type { Project, RootStackParamList, Session, Voice, VoiceAssignment } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptDetail'>;
 
@@ -43,6 +44,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
   const [assigned, setAssigned] = useState<VoiceAssignment[]>([]);
   const [role, setRole] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const [history, setHistory] = useState<Session[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +57,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
       ]);
       setVoices(avail);
       setAssigned(assigns);
+      Sessions.list(projectId).then(setHistory).catch(() => {});
     } catch (e) {
       Alert.alert('Could not load script', e instanceof Error ? e.message : 'Unknown error', [
         { text: 'OK', onPress: () => navigation.goBack() },
@@ -231,6 +234,40 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
             </Card>
           </View>
         ) : null}
+
+        {history.length ? (
+          <View>
+            <Text style={[styles.sectionLabel, { color: theme.text }]}>Rehearsal history · {history.length}</Text>
+            <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginTop: -6, marginBottom: 10 }}>
+              Confidence score (0–100) from each session's delivery analysis.
+            </Text>
+            <Card padding={0}>
+              {history.slice(0, 8).map((s, i) => {
+                const score = s.feedback?.confidenceScore;
+                return (
+                  <TouchableOpacity
+                    key={s.id}
+                    onPress={() => navigation.navigate('SessionResults', { projectId, sessionId: s.id })}
+                    style={[styles.historyRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.divider }]}
+                  >
+                    <Text style={{ fontFamily: fonts.heavy, fontSize: 18, width: 44, color: score == null ? theme.muted : scoreText(theme, score) }}>
+                      {score ?? '—'}
+                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.text }}>
+                        {new Date(s.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </Text>
+                      <Text style={{ fontFamily: fonts.regular, fontSize: 11.5, color: theme.muted }}>
+                        {s.feedback?.recording?.clips?.length ? '🎙 Recording saved' : 'No recording'} · {s.completedLines} lines
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={16} color={theme.muted} />
+                  </TouchableOpacity>
+                );
+              })}
+            </Card>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { backgroundColor: theme.bg }]}>
@@ -256,4 +293,5 @@ const styles = StyleSheet.create({
   voiceIcon: { width: 40, height: 40, borderRadius: radii.tile, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   test: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: radii.pill, borderWidth: 1, minWidth: 58, alignItems: 'center' },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, paddingTop: 14, paddingBottom: 8 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
 });

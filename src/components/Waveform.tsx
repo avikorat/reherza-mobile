@@ -1,50 +1,50 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { useTheme } from '../ThemeContext';
+import React, { useEffect, useRef } from 'react';
+import { View, Animated, Easing, StyleSheet } from 'react-native';
 
-// A stylised audio waveform (static bars). `variant` follows the teleprompter's
-// line-ownership colours rather than a decorative palette, so the bars answer
-// the same question the text does — whose turn is this?
-//   - "ai":   the scene partner's cyan (--tp-partner)
-//   - "user": your brand blue (--tp-you), trailing off into the track colour
-const AI_BARS = [20, 55, 85, 40, 100, 70, 95, 35, 65, 88, 45, 25, 60];
-const USER_BARS = [30, 55, 80, 100, 70, 45, 60, 35, 25, 40, 20];
-
+// The web's `audioBar` keyframe: 3px → 18px → 3px, 0.8 s ease-in-out,
+// staggered 120 ms per bar. It is THE listening / speaking indicator — the
+// same motion for the partner's voice and your own mic, coloured by owner.
 interface WaveformProps {
-  variant?: 'ai' | 'user';
-  height?: number;
+  color: string;
+  bars?: number;
+  /** Frozen at the resting height when false. */
+  active?: boolean;
+  min?: number;
+  max?: number;
+  width?: number;
 }
 
-export default function Waveform({ variant = 'ai', height = 56 }: WaveformProps) {
-  const { theme } = useTheme();
+export default function Waveform({ color, bars = 5, active = true, min = 3, max = 18, width = 3 }: WaveformProps) {
+  const values = useRef(Array.from({ length: bars }, () => new Animated.Value(0))).current;
 
-  if (variant === 'user') {
-    return (
-      <View style={[styles.row, { height: 34, gap: 3 }]}>
-        {USER_BARS.map((h, i) => {
-          // The live end of the meter is solid brand blue; past it the bars fall
-          // back to the neutral track so the "level" reads without a legend.
-          const color = i < 5 ? theme.tpYou : i < 7 ? theme.accent2Fill : theme.border;
-          return (
-            <View key={i} style={{ width: 4, height: `${h}%`, backgroundColor: color, borderRadius: 2 }} />
-          );
-        })}
-      </View>
+  useEffect(() => {
+    if (!active) {
+      values.forEach((v) => v.setValue(0));
+      return;
+    }
+    const loops = values.map((v, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 120),
+          Animated.timing(v, { toValue: 1, duration: 400, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+          Animated.timing(v, { toValue: 0, duration: 400, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+        ])
+      )
     );
-  }
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [active, values]);
 
   return (
-    <View style={[styles.row, { height, gap: 4 }]}>
-      {AI_BARS.map((h, i) => (
-        <View
+    <View style={[styles.row, { height: max, gap: width }]}>
+      {values.map((v, i) => (
+        <Animated.View
           key={i}
           style={{
-            width: 5,
-            height: `${h}%`,
-            // Alternate the two ends of the brand sweep so the block of bars
-            // reads as the gradient without painting one.
-            backgroundColor: i % 3 === 0 ? theme.accent : theme.accent2Fill,
-            borderRadius: 3,
+            width,
+            borderRadius: width,
+            backgroundColor: color,
+            height: v.interpolate({ inputRange: [0, 1], outputRange: [min, max] }),
           }}
         />
       ))}
@@ -53,5 +53,5 @@ export default function Waveform({ variant = 'ai', height = 56 }: WaveformProps)
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
 });

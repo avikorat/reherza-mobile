@@ -1,7 +1,9 @@
 // Every backend call the app makes, grouped by feature.
 // See the API reference: all paths are relative to `${API_URL}` (…/api).
-import { api } from './client';
+import { api, ApiError } from './client';
+import { API_URL } from '../config';
 import type {
+  DeliveryAnalysis,
   DemoScene,
   ParsedLine,
   PlayableLine,
@@ -9,6 +11,7 @@ import type {
   Project,
   SelfTape,
   Session,
+  SessionCoaching,
   SessionFeedback,
   Subscription,
   TranscriptResult,
@@ -69,6 +72,9 @@ export const Projects = {
   deleteLine: (id: string, lineIndex: number) =>
     api<Project>(`/projects/${id}/lines/${lineIndex}`, { method: 'DELETE' }),
   remove: (id: string) => api<{ message: string }>(`/projects/${id}`, { method: 'DELETE' }),
+  /** What the next delivery analysis of this script costs. `milli` 0 = free. */
+  analysisPrice: (id: string) =>
+    api<{ milli: number; analysesUsed: number; freeAnalysesPerScript: number }>(`/projects/${id}/analysis-price`),
 };
 
 // ── Playhouse demo scenes ──────────────────────────────────────────────
@@ -95,21 +101,63 @@ export interface TtsParams {
   profile?: 'baseline' | 'enhanced';
   speaker?: string;
   sceneTitle?: string;
+  projectId?: string;
+  /** "SPEAKER: text" of the neighbouring lines in the performance sequence. */
+  contextBefore?: string;
+  contextAfter?: string;
+  /** "action; deliveryNote" — never spoken, steers the read. */
+  action?: string;
   emotion?: string;
   intensity?: number;
+  audioTags?: string[];
+}
+
+export type PrepLine = Omit<TtsParams, 'profile' | 'sceneTitle' | 'projectId'>;
+
+export interface PrepBatch {
+  profile: 'baseline' | 'enhanced';
+  sceneTitle: string;
+  projectId: string;
+  lines: PrepLine[];
+}
+
+export interface PregenerateResult {
+  ready: boolean;
+  total: number;
+  generated: number;
+  cached: number;
+  remaining?: number;
+  /** Edited lines that can't get a new voice while out of credits. */
+  withheld?: number;
+  code?: string;
+  requiredCharacters?: number;
+  remainingCharacters?: number;
+}
+
+export interface PreflightResult {
+  allowed: boolean;
+  code?: string;
+  error?: string;
+  billingLocked?: boolean;
 }
 
 export const Tts = {
   speak: (params: TtsParams) => api<TtsResult>('/tts', { method: 'POST', body: params, timeout: 90000 }),
-  pregenerate: (
-    profile: 'baseline' | 'enhanced',
-    sceneTitle: string,
-    lines: Array<Omit<TtsParams, 'profile' | 'sceneTitle'>>
-  ) =>
-    api<{ total: number; generated: number; cached: number; limitReached: boolean }>(
-      '/tts/pregenerate',
-      { method: 'POST', body: { profile, sceneTitle, lines }, timeout: 120000 }
-    ),
+  // An early warning, not the gate: anything but an explicit
+  // `insufficient_voice_allowance` refusal resolves as allowed.
+  preflight: async (body: PrepBatch): Promise<PreflightResult> => {
+    try {
+      return await api<PreflightResult>('/tts/preflight', { method: 'POST', body });
+    } catch (e) {
+      const data = e instanceof ApiError ? (e.body as PreflightResult | null) : null;
+      if (data?.code === 'insufficient_voice_allowance') return { ...data, allowed: false };
+      return { allowed: true };
+    }
+  },
+  // Answers within ~22 s; a `ready: false` + `preparation_in_progress` reply
+  // means "call again with the same body".
+  pregenerate: (body: PrepBatch) =>
+    api<PregenerateResult>('/tts/pregenerate', { method: 'POST', body, timeout: 120000 }),
 };
 
 // ── Rehearsal sessions ─────────────────────────────────────────────────
@@ -127,22 +175,40 @@ export const Sessions = {
     api<Session>(`/projects/${projectId}/sessions/${sessionId}`),
   update: (projectId: string, sessionId: string, patch: SessionPatch) =>
     api<Session>(`/projects/${projectId}/sessions/${sessionId}`, { method: 'PATCH', body: patch }),
+  // Idempotent: frozen into the session's feedback on first success.
+  coachSummary: (projectId: string, sessionId: string) =>
+    api<SessionCoaching>(`/projects/${projectId}/sessions/${sessionId}/coach-summary`, {
+      method: 'POST',
+      timeout: 90000,
+    }),
 };
 
 // ── Speech ─────────────────────────────────────────────────────────────
+export interface AnalyzeDeliveryBody {
+  audioBase64: string;
+  mimeType: string;
+  /** One UUID per rehearsal pass — every line shares it so the pass costs one credit. */
+  analysisId: string;
+  sessionId?: string;
+  projectId?: string;
+  lineIndex: number;
+  expected: string;
+  speaker: string;
+  sceneTitle?: string;
+  emotion?: string;
+  intensity?: number;
+  action?: string;
+  deliveryNote?: string;
+  contextBefore?: string;
+  contextAfter?: string;
+  measured?: { transcript?: string; asrConfidence?: number; durationMs?: number; longPauses?: number; timeToFirstSpeechMs?: number };
+}
+
 export const Speech = {
-  transcribe: (audioBase64: string, mimeType: string) =>
-    api<TranscriptResult>('/transcribe', {
-      method: 'POST',
-      body: { audioBase64, mimeType },
-      timeout: 90000,
-    }),
-  analyzeDelivery: (audioBase64: string, mimeType: string, expected: string, speaker: string) =>
-    api<Record<string, unknown>>('/analyze-delivery', {
-      method: 'POST',
-      body: { audioBase64, mimeType, expected, speaker },
-      timeout: 90000,
-    }),
+  transcribe: (body: { audioBase64: string; mimeType: string; sessionId?: string; lineIndex?: number; expected?: string }) =>
+    api<TranscriptResult>('/transcribe', { method: 'POST', body, timeout: 90000 }),
+  analyzeDelivery: (body: AnalyzeDeliveryBody) =>
+    api<DeliveryAnalysis>('/analyze-delivery', { method: 'POST', body, timeout: 120000 }),
 };
 
 // ── Usage & billing ────────────────────────────────────────────────────
@@ -189,6 +255,8 @@ export const Storage = {
       method: 'POST',
       body: { name, size, contentType },
     }),
+  /** Streams a private object (owner ACL) — send the bearer token with it. */
+  objectUrl: (objectPath: string) => `${API_URL}/storage/objects/${objectPath.replace(/^\/objects\//, '')}`,
 };
 
 // ── Helpers shared by screens ──────────────────────────────────────────
@@ -209,20 +277,4 @@ export function playableLines(project: Project | null | undefined): PlayableLine
       ...l,
       mine: mine.length ? mine.includes(l.speaker) : l.role === 'user',
     }));
-}
-
-// Crude word-overlap accuracy between the scripted line and a transcript,
-// used when the server-side analysis is skipped.
-export function lineAccuracy(expected: string, spoken: string | null): number {
-  const norm = (s: string | null): string[] =>
-    (s || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9' ]+/g, ' ')
-      .split(/\s+/)
-      .filter(Boolean);
-  const a = norm(expected);
-  const b = new Set(norm(spoken));
-  if (!a.length) return 0;
-  const hit = a.filter((w) => b.has(w)).length;
-  return Math.round((hit / a.length) * 100) / 100;
 }
