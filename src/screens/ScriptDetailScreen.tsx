@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -9,9 +10,9 @@ import Card from '../components/Card';
 import Badge from '../components/Badge';
 import GradientButton from '../components/GradientButton';
 import OutlineButton from '../components/OutlineButton';
-import { BackButton } from '../components/Bits';
+import { BackButton, HeaderAction } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
-import { ApiError, Projects, Sessions, Tts, Voices, myCharacters, playableLines } from '../api';
+import { ApiError, History, Projects, SelfTapes, Tts, Voices, myCharacters, playableLines } from '../api';
 import { playBase64 } from '../lib/audio';
 import { scoreText } from '../lib/scoreColors';
 import {
@@ -23,7 +24,7 @@ import {
   diagonalStart,
   diagonalEnd,
 } from '../theme';
-import type { Project, RootStackParamList, Session, Voice, VoiceAssignment } from '../types';
+import type { HistoryEntry, Project, RootStackParamList, Voice, VoiceAssignment } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptDetail'>;
 
@@ -44,20 +45,25 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
   const [assigned, setAssigned] = useState<VoiceAssignment[]>([]);
   const [role, setRole] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
-  const [history, setHistory] = useState<Session[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   const load = useCallback(async () => {
     try {
       const p = await Projects.get(projectId);
       setProject(p);
       setRole((r) => r || myCharacters(p)[0] || p.speakers?.[0] || null);
+      // The list shows the first speaker as "you play this" by default, so the
+      // server has to agree, or Start Rehearsal bounces straight back here.
+      if (!myCharacters(p).length && p.speakers?.[0]) {
+        Projects.update(projectId, { selectedCharacters: [p.speakers[0]] }).catch(() => {});
+      }
       const [avail, assigns] = await Promise.all([
         Voices.available().catch(() => [] as Voice[]),
         Voices.forProject(projectId).catch(() => [] as VoiceAssignment[]),
       ]);
       setVoices(avail);
       setAssigned(assigns);
-      Sessions.list(projectId).then(setHistory).catch(() => {});
+      History.forProject(projectId).then((h) => setHistory(h.entries)).catch(() => {});
     } catch (e) {
       Alert.alert('Could not load script', e instanceof Error ? e.message : 'Unknown error', [
         { text: 'OK', onPress: () => navigation.goBack() },
@@ -104,6 +110,18 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
     const idx = aiVoice ? voices.findIndex((v) => v.voiceId === aiVoice.voiceId) : -1;
     const next = voices[(idx + 1) % voices.length];
     try {
+      // Re-voicing lines that were already generated costs credits; the server
+      // prices it, so ask before committing.
+      const price = await Voices.changePrice(projectId, aiSpeaker).catch(() => null);
+      if (price && price.milli > 0) {
+        const ok = await new Promise<boolean>((resolve) =>
+          Alert.alert('Change voice?', `Re-voicing ${aiSpeaker} uses ${price.milli / 1000} credit${price.milli === 1000 ? '' : 's'}.`, [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Change', onPress: () => resolve(true) },
+          ], { cancelable: true, onDismiss: () => resolve(false) })
+        );
+        if (!ok) return;
+      }
       await Voices.assign(projectId, aiSpeaker, next.voiceId, next.name);
       setAssigned(await Voices.forProject(projectId).catch(() => assigned));
     } catch (e) {
@@ -129,7 +147,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
       if (e instanceof ApiError && e.status === 402) {
         Alert.alert('Voice limit reached', e.message, [
           { text: 'Not now' },
-          { text: 'See plans', onPress: () => navigation.navigate('Billing') },
+          { text: 'View usage', onPress: () => navigation.navigate('Billing') },
         ]);
       } else {
         Alert.alert('Voice preview failed', e instanceof Error ? e.message : 'Unknown error');
@@ -137,20 +155,56 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
     }
   };
 
+  const playTake = async (takeId: string) => {
+    try {
+      const { url } = await SelfTapes.downloadUrl(projectId, takeId);
+      await WebBrowser.openBrowserAsync(url);
+    } catch (e) {
+      Alert.alert('Could not open take', e instanceof Error ? e.message : 'Unknown error');
+    }
+  };
+
+  const deleteTake = (takeId: string) =>
+    Alert.alert('Delete this take?', 'The video is removed from your library. This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await SelfTapes.remove(projectId, takeId);
+            setHistory((h) => h.filter((e) => e.id !== takeId));
+          } catch (e) {
+            Alert.alert('Could not delete take', e instanceof Error ? e.message : 'Unknown error');
+          }
+        },
+      },
+    ]);
+
+  const deleteScript = () =>
+    Alert.alert('Delete script?', `"${project.title}", its rehearsals and its takes are deleted permanently.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await Projects.remove(projectId);
+            navigation.goBack();
+          } catch (e) {
+            Alert.alert('Could not delete script', e instanceof Error ? e.message : 'Unknown error');
+          }
+        },
+      },
+    ]);
+
   const minutes = Math.max(1, Math.round(lines.length / 6));
 
   return (
     <Screen padded={false}>
       <View style={styles.header}>
         <BackButton onPress={() => navigation.goBack()} />
-        <TouchableOpacity
-          onPress={() => navigation.navigate('ScriptEditor', { id: projectId })}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-          activeOpacity={0.7}
-        >
-          <Feather name="edit-3" size={15} color={theme.accent} />
-          <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Edit lines</Text>
-        </TouchableOpacity>
+        <HeaderAction icon="edit-3" label="Edit lines" onPress={() => navigation.navigate('ScriptEditor', { id: projectId })} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 20, gap: 16 }}>
@@ -206,7 +260,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
           <View>
             <View style={styles.rowBetween}>
               <Text style={[styles.sectionLabel, { color: theme.text, marginBottom: 0 }]}>AI voice · {aiSpeaker}</Text>
-              <TouchableOpacity onPress={cycleVoice}>
+              <TouchableOpacity onPress={cycleVoice} hitSlop={10} accessibilityRole="button" accessibilityLabel="Change voice">
                 <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.accent }}>Change</Text>
               </TouchableOpacity>
             </View>
@@ -224,11 +278,14 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                   {aiVoice?.description || '—'}
                 </Text>
               </View>
-              <TouchableOpacity onPress={testVoice} style={[styles.test, { borderColor: theme.accent2 }]}>
+              <TouchableOpacity onPress={testVoice} hitSlop={6} accessibilityRole="button" accessibilityLabel="Test voice" style={[styles.test, { borderColor: theme.accent2 }]}>
                 {testing ? (
                   <ActivityIndicator size="small" color={theme.accent2} />
                 ) : (
-                  <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent2 }}>▶ Test</Text>
+                  <>
+                    <Feather name="play" size={12} color={theme.accent2} />
+                    <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent2 }}>Test</Text>
+                  </>
                 )}
               </TouchableOpacity>
             </Card>
@@ -237,37 +294,57 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
 
         {history.length ? (
           <View>
-            <Text style={[styles.sectionLabel, { color: theme.text }]}>Rehearsal history · {history.length}</Text>
+            <Text style={[styles.sectionLabel, { color: theme.text }]}>History · {history.length}</Text>
             <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginTop: -6, marginBottom: 10 }}>
-              Confidence score (0–100) from each session's delivery analysis.
+              Rehearsal scores (0–100) and your saved self-tapes.
             </Text>
             <Card padding={0}>
-              {history.slice(0, 8).map((s, i) => {
-                const score = s.feedback?.confidenceScore;
+              {history.slice(0, 12).map((h, i) => {
+                const take = h.kind === 'selftape';
+                const score = h.confidenceScore;
+                const date = new Date(h.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
                 return (
                   <TouchableOpacity
-                    key={s.id}
-                    onPress={() => navigation.navigate('SessionResults', { projectId, sessionId: s.id })}
+                    key={h.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={take ? `Play self-tape from ${date}` : `Rehearsal results from ${date}`}
+                    onPress={() => (take ? void playTake(h.id) : navigation.navigate('SessionResults', { projectId, sessionId: h.id }))}
                     style={[styles.historyRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.divider }]}
                   >
-                    <Text style={{ fontFamily: fonts.heavy, fontSize: 18, width: 44, color: score == null ? theme.muted : scoreText(theme, score) }}>
-                      {score ?? '—'}
-                    </Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.text }}>
-                        {new Date(s.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {take ? (
+                      <View style={{ width: 44 }}>
+                        <Feather name="video" size={20} color={theme.accent} />
+                      </View>
+                    ) : (
+                      <Text style={{ fontFamily: fonts.heavy, fontSize: 18, width: 44, color: score == null ? theme.muted : scoreText(theme, score) }}>
+                        {score ?? '—'}
                       </Text>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.text }}>{date}</Text>
                       <Text style={{ fontFamily: fonts.regular, fontSize: 11.5, color: theme.muted }}>
-                        {s.feedback?.recording?.clips?.length ? '🎙 Recording saved' : 'No recording'} · {s.completedLines} lines
+                        {take
+                          ? `Self-tape · ${Math.round(h.durationSeconds)}s`
+                          : `${h.hasRecording ? 'Recording saved' : 'No recording'} · ${h.completedLines ?? 0} lines`}
                       </Text>
                     </View>
-                    <Feather name="chevron-right" size={16} color={theme.muted} />
+                    {take ? (
+                      <TouchableOpacity onPress={() => deleteTake(h.id)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Delete take">
+                        <Feather name="trash-2" size={16} color={theme.muted} />
+                      </TouchableOpacity>
+                    ) : (
+                      <Feather name="chevron-right" size={16} color={theme.muted} />
+                    )}
                   </TouchableOpacity>
                 );
               })}
             </Card>
           </View>
         ) : null}
+
+        <TouchableOpacity onPress={deleteScript} accessibilityRole="button" style={{ alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.destructive }}>Delete script</Text>
+        </TouchableOpacity>
       </ScrollView>
 
       <View style={[styles.footer, { backgroundColor: theme.bg }]}>
@@ -291,7 +368,7 @@ const styles = StyleSheet.create({
   radio: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 0 },
   voiceIcon: { width: 40, height: 40, borderRadius: radii.tile, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  test: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: radii.pill, borderWidth: 1, minWidth: 58, alignItems: 'center' },
+  test: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 14, height: 36, borderRadius: radii.pill, borderWidth: 1, minWidth: 66 },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, paddingTop: 14, paddingBottom: 8 },
   historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
 });

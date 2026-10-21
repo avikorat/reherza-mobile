@@ -45,6 +45,7 @@ export default function SignInScreen({ navigation }: Props) {
 
   const google = useSocialAuth('Google', onSocialToken, onSocialError);
   const apple = useSocialAuth('SignInWithApple', onSocialToken, onSocialError);
+  const showSocial = __DEV__ || (google.available && (Platform.OS !== 'ios' || apple.available));
 
   const submit = async () => {
     if (!email.trim() || !password) {
@@ -109,44 +110,50 @@ export default function SignInScreen({ navigation }: Props) {
           <GradientButton label="Sign In" onPress={submit} />
         )}
 
-        <View style={styles.divider}>
-          <View style={[styles.rule, { backgroundColor: theme.borderStrong }]} />
-          <Text style={[styles.or, { color: theme.muted }]}>or</Text>
-          <View style={[styles.rule, { backgroundColor: theme.borderStrong }]} />
-        </View>
+        {/* Release builds hide social sign-in unless it is configured, and on
+            iOS Google is only offered alongside Sign in with Apple (App Store 4.8). */}
+        {showSocial ? (
+          <>
+          <View style={styles.divider}>
+            <View style={[styles.rule, { backgroundColor: theme.borderStrong }]} />
+            <Text style={[styles.or, { color: theme.muted }]}>or</Text>
+            <View style={[styles.rule, { backgroundColor: theme.borderStrong }]} />
+          </View>
 
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => (google.available ? google.prompt() : Alert.alert('Google sign-in', UNCONFIGURED_MESSAGE))}
-          style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
-        >
-          {google.busy ? (
-            <ActivityIndicator size="small" color={theme.accent} />
-          ) : (
-            <>
-              <GoogleMark size={17} />
-              <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.text }}>Continue with Google</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        {Platform.OS === 'ios' ? (
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() => (apple.available ? apple.prompt() : Alert.alert('Sign in with Apple', UNCONFIGURED_MESSAGE))}
-            style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent', marginTop: 10 }]}
+            onPress={() => (google.available ? google.prompt() : Alert.alert('Google sign-in', UNCONFIGURED_MESSAGE))}
+            style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
           >
-            {apple.busy ? (
-              <ActivityIndicator size="small" color={theme.key === 'stage' ? '#000' : '#fff'} />
+            {google.busy ? (
+              <ActivityIndicator size="small" color={theme.accent} />
             ) : (
               <>
-                <Text style={{ fontSize: 17, color: theme.key === 'stage' ? '#000' : '#fff' }}></Text>
-                <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.key === 'stage' ? '#000' : '#fff' }}>
-                  Sign in with Apple
-                </Text>
+                <GoogleMark size={17} />
+                <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.text }}>Continue with Google</Text>
               </>
             )}
           </TouchableOpacity>
+
+          {Platform.OS === 'ios' ? (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => (apple.available ? apple.prompt() : Alert.alert('Sign in with Apple', UNCONFIGURED_MESSAGE))}
+              style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent', marginTop: 10 }]}
+            >
+              {apple.busy ? (
+                <ActivityIndicator size="small" color={theme.key === 'stage' ? '#000' : '#fff'} />
+              ) : (
+                <>
+                  <Text style={{ fontSize: 17, color: theme.key === 'stage' ? '#000' : '#fff' }}></Text>
+                  <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.key === 'stage' ? '#000' : '#fff' }}>
+                    Sign in with Apple
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
+          </>
         ) : null}
 
         <View style={styles.switchRow}>

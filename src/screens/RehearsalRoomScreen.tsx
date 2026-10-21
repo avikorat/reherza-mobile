@@ -16,9 +16,10 @@ import {
   type AnalyzeDeliveryBody, type PrepBatch,
 } from '../api';
 import {
-  cacheClip, ensureMicPermission, leaveRehearsalAudioMode, micPermission,
+  cacheClip, leaveRehearsalAudioMode, micPermission,
   playClip, putFile, startRecording, stopPlayback, stopRecording, type MicPermission, type RecordedAudio,
 } from '../lib/audio';
+import { askMicrophone, openSettingsForPermission } from '../lib/permissions';
 import {
   buildSequence, clip, estimateDuration, expectedMs, feedEndpointer, findRedoStep, newEndpointer,
   sceneWindow, ttsContext, type Endpointer,
@@ -229,7 +230,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
     if (!project || !creditsChecked || blocked || phaseRef.current !== 'idle') return;
     // A refused mic doesn't block the scene: the run continues in manual mode
     // (Done Speaking only), exactly as the start card's notice promises.
-    setMic(await ensureMicPermission());
+    setMic(await askMicrophone());
 
     played.current.clear();
     captures.current.clear();
@@ -480,7 +481,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
   };
 
   const retryMic = async () => {
-    const perm = await ensureMicPermission();
+    const perm = await askMicrophone();
     setMic(perm);
     if (perm === 'granted') { setDeviceLoss(null); handleResume(); }
     else setDeviceLoss('Your mic is switched off for Reherza');
@@ -706,6 +707,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
             overLimit={overLimit}
             onStart={() => void handleStart()}
             onUpgrade={() => navigation.navigate('Billing')}
+            onOpenSettings={() => void openSettingsForPermission('microphone')}
           />
         ) : (
           <>
@@ -863,10 +865,10 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
 // ── Pieces ──────────────────────────────────────────────────────────────
 type T = ReturnType<typeof useTheme>['theme'];
 
-function StartCard({ theme, title, chars, count, isFocus, ready, blocked, manual, micState, overLimit, onStart, onUpgrade }: {
+function StartCard({ theme, title, chars, count, isFocus, ready, blocked, manual, micState, overLimit, onStart, onUpgrade, onOpenSettings }: {
   theme: T; title: string; chars: string[]; count: number; isFocus: boolean; ready: boolean;
   blocked: { message: string; billingLocked?: boolean } | null; manual: boolean; micState: MicPermission; overLimit: boolean;
-  onStart: () => void; onUpgrade: () => void;
+  onStart: () => void; onUpgrade: () => void; onOpenSettings: () => void;
 }) {
   return (
     <View style={[styles.startCard, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow }]}>
@@ -877,13 +879,13 @@ function StartCard({ theme, title, chars, count, isFocus, ready, blocked, manual
       </Text>
 
       {micState === 'denied' && !blocked ? (
-        <Notice theme={theme} text='Mic access is blocked, so auto-advance and scoring are off. Enable the microphone in Settings, or rehearse manually by tapping "Done Speaking" after each line.' />
+        <Notice theme={theme} text='Mic access is blocked, so auto-advance and scoring are off. Rehearse manually by tapping "Done Speaking" after each line, or' link="turn it on in Settings." onLink={onOpenSettings} />
       ) : null}
       {overLimit && !blocked ? (
-        <Notice theme={theme} text="You've used all of this month's credits. You can still rehearse with cached voices." link="Upgrade for more" onLink={onUpgrade} />
+        <Notice theme={theme} text="You've used all of this month's credits. You can still rehearse with cached voices." link="View usage" onLink={onUpgrade} />
       ) : null}
       {blocked ? (
-        <Notice theme={theme} text={blocked.message} link={blocked.billingLocked ? undefined : 'Upgrade plan'} onLink={onUpgrade} />
+        <Notice theme={theme} text={blocked.message} link={blocked.billingLocked ? undefined : 'View usage'} onLink={onUpgrade} />
       ) : null}
 
       <GradientButton
@@ -955,7 +957,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
   loadingText: { fontFamily: fonts.semibold, fontSize: 13 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 24, paddingVertical: 8 },
-  endBtn: { borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: 14, height: 38, alignItems: 'center', justifyContent: 'center' },
+  endBtn: { borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: 16, height: 44, alignItems: 'center', justifyContent: 'center' },
   focusBanner: { alignItems: 'center', paddingVertical: 6, marginTop: 4 },
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   eyebrow: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase' },
@@ -974,8 +976,8 @@ const styles = StyleSheet.create({
   resumeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: radii.card, paddingVertical: 18 },
   skipBtn: { flex: 1, borderWidth: 1, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
   footer: { flexDirection: 'row', gap: 8, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 6, marginTop: 14, borderTopWidth: 1 },
-  ctl: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 40, borderWidth: 1, borderRadius: radii.pill },
-  overlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 24 },
+  ctl: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderWidth: 1, borderRadius: radii.pill },
+  overlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 24 },
   overlayCard: { alignSelf: 'stretch', borderRadius: radii.card, padding: 22, alignItems: 'center' },
   countdown: { fontFamily: fonts.heavy, fontSize: 112, color: palette.white, fontVariant: ['tabular-nums'] },
   startCard: { alignSelf: 'stretch', borderWidth: 2, borderRadius: radii.card, padding: 24, alignItems: 'center', shadowOpacity: 1, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },

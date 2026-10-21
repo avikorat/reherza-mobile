@@ -5,7 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType } from 'expo-camera';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Projects, myCharacters, playableLines } from '../api';
+import { Projects, playableLines } from '../api';
+import { explainPermission, openSettingsForPermission } from '../lib/permissions';
 import { fonts, radii, palette, stageSurfaces, RED_DOT } from '../theme';
 import type { RootStackParamList } from '../types';
 
@@ -27,23 +28,30 @@ export default function StudioScreen({ navigation, route }: Props) {
   const stoppedRef = useRef(false);
   const navigatedRef = useRef(false);
 
-  // Ask for camera + mic up front.
+  // Ask for camera + mic up front: one rationale dialog, then the system
+  // prompts. Refused for good → the Settings dialog instead of a dead prompt.
+  const askedRef = useRef(false);
+  const askForAccess = async () => {
+    const blocked =
+      (camPerm && !camPerm.granted && !camPerm.canAskAgain) || (micPerm && !micPerm.granted && !micPerm.canAskAgain);
+    if (blocked) { await openSettingsForPermission('camera'); return; }
+    if (!(await explainPermission('camera'))) return;
+    if (!camPerm?.granted) await requestCamPerm();
+    if (!micPerm?.granted) await requestMicPerm();
+  };
   useEffect(() => {
-    void (async () => {
-      if (!camPerm?.granted) await requestCamPerm();
-      if (!micPerm?.granted) await requestMicPerm();
-    })();
-  }, []);
+    if (!camPerm || !micPerm || askedRef.current) return;
+    if (camPerm.granted && micPerm.granted) return;
+    askedRef.current = true;
+    void askForAccess();
+  }, [camPerm, micPerm]);
 
   // Teleprompter: the user's first line from the project.
   useEffect(() => {
     if (!projectId) return;
     Projects.get(projectId)
       .then((p) => {
-        const mine = myCharacters(p);
-        const line = playableLines(p).find((l) =>
-          mine.length ? mine.includes(l.speaker) : l.role === 'user'
-        );
+        const line = playableLines(p).find((l) => l.mine);
         if (line) setPrompt({ speaker: line.speaker, text: line.text });
       })
       .catch(() => {});
@@ -143,14 +151,10 @@ export default function StudioScreen({ navigation, route }: Props) {
           <Text style={styles.permText}>
             Self-tapes record video and audio. Allow camera and microphone access to use the Studio.
           </Text>
-          <TouchableOpacity
-            onPress={async () => {
-              await requestCamPerm();
-              await requestMicPerm();
-            }}
-            style={styles.permBtn}
-          >
-            <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: palette.white }}>Allow access</Text>
+          <TouchableOpacity onPress={() => void askForAccess()} style={styles.permBtn} accessibilityRole="button">
+            <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: palette.white }}>
+              {(camPerm && !camPerm.canAskAgain) || (micPerm && !micPerm.canAskAgain) ? 'Open Settings' : 'Allow access'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 14 }}>
             <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: stageSurfaces.onDarkSubtle }}>Go back</Text>
@@ -184,8 +188,9 @@ export default function StudioScreen({ navigation, route }: Props) {
           the REC clock clears the notch, the shutter clears the home indicator. */}
       <SafeAreaView style={styles.chrome}>
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={close} style={styles.chip}>
-            <Text style={styles.chipText}>✕ Close</Text>
+          <TouchableOpacity onPress={close} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close studio" style={styles.chip}>
+            <Feather name="x" size={14} color={palette.white} />
+            <Text style={styles.chipText}>Close</Text>
           </TouchableOpacity>
           <View style={styles.chip}>
             <View style={[styles.recDot, !recording && { backgroundColor: 'rgba(255,255,255,0.4)' }]} />
@@ -243,7 +248,7 @@ const styles = StyleSheet.create({
   // The normal contrast rules don't hold here; the scrims supply the contrast.
   safe: { flex: 1, backgroundColor: stageSurfaces.bg },
   // Transparent inset layer holding the controls above the preview.
-  chrome: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between' },
+  chrome: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 8 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,

@@ -18,6 +18,9 @@ import StudioScreen from '../screens/StudioScreen';
 import TakeReviewScreen from '../screens/TakeReviewScreen';
 import SessionResultsScreen from '../screens/SessionResultsScreen';
 import BillingScreen from '../screens/BillingScreen';
+import HistoryScreen from '../screens/HistoryScreen';
+import FeedbackScreen from '../screens/FeedbackScreen';
+import ContactScreen from '../screens/ContactScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -46,6 +49,9 @@ export default function RootNavigator() {
       <Stack.Screen name="ScriptEditor" component={ScriptEditorScreen} />
       <Stack.Screen name="SessionResults" component={SessionResultsScreen} />
       <Stack.Screen name="Billing" component={BillingScreen} />
+      <Stack.Screen name="History" component={HistoryScreen} />
+      <Stack.Screen name="Feedback" component={FeedbackScreen} />
+      <Stack.Screen name="Contact" component={ContactScreen} />
 
       {/* Immersive (no gestures / full screen) */}
       <Stack.Group screenOptions={{ animation: 'fade', gestureEnabled: false }}>

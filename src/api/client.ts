@@ -76,8 +76,15 @@ export async function api<T = unknown>(
       data && typeof data === 'object' && 'error' in data
         ? String((data as { error: unknown }).error)
         : null;
+    // The server's limit messages are shared with the web and say "Upgrade your
+    // plan" / "Buy extra credits". The app sells nothing (App Store 3.1.1 / Play
+    // payments policy), so those sentences are dropped and the rest is kept.
+    const storeSafe = serverMessage
+      ?.replace(/[^.!?]*\b(upgrade|buy|purchase)\b[^.!?]*[.!?]?/gi, '')
+      .trim();
     const message =
-      serverMessage ||
+      storeSafe ||
+      (serverMessage ? "You've reached your plan's limit for now. Your allowance resets monthly." : null) ||
       (res.status === 429
         ? 'Too many requests — give it a moment.'
         : `Request failed (${res.status})`);

@@ -57,7 +57,7 @@ export default function OutlineButton({
       ]}
     >
       {icon ? <Feather name={icon} size={small ? 15 : 16} color={color} /> : null}
-      <Text style={[styles.label, { color, fontSize: small ? 14 : 15 }]}>{label}</Text>
+      <Text style={[styles.label, { color, fontSize: small ? 14 : 15 }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{label}</Text>
     </TouchableOpacity>
   );
 }

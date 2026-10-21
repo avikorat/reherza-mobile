@@ -75,11 +75,45 @@ export function BackButton({ onPress }: { onPress: () => void }) {
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
+      hitSlop={6}
       accessibilityRole="button"
       accessibilityLabel="Go back"
       style={[styles.back, { backgroundColor: theme.surface, borderColor: theme.border }]}
     >
       <Feather name="chevron-left" size={22} color={theme.text} />
+    </TouchableOpacity>
+  );
+}
+
+// A text action in a screen header ("Cancel", "Edit lines", "End"). The label
+// is small, so the tap target is padded out to the platform floor.
+export function HeaderAction({
+  label,
+  onPress,
+  icon,
+  color,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  icon?: keyof typeof Feather.glyphMap;
+  color?: string;
+  disabled?: boolean;
+}) {
+  const { theme } = useTheme();
+  const fg = color || theme.accent;
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.7}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.headerAction, disabled && { opacity: 0.4 }]}
+    >
+      {icon ? <Feather name={icon} size={15} color={fg} /> : null}
+      <Text style={{ fontFamily: fonts.bold, fontSize: 13.5, color: fg }} maxFontSizeMultiplier={1.3}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -113,7 +147,8 @@ export function ProgressBar({
 const styles = StyleSheet.create({
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   back: {
-    width: 38, height: 38, borderRadius: radii.control, borderWidth: 1,
+    width: 44, height: 44, borderRadius: radii.control, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
+  headerAction: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, paddingHorizontal: 4, justifyContent: 'center' },
 });

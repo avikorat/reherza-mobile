@@ -50,7 +50,7 @@ export default function Badge({ label, variant = 'soft', color, style }: BadgePr
 
   return (
     <View style={[styles.badge, { backgroundColor: bg, borderColor }, style]}>
-      <Text style={[styles.label, { color: color || fg }]}>{label}</Text>
+      <Text style={[styles.label, { color: color || fg }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{label}</Text>
     </View>
   );
 }

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Easing, Alert } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, Alert, TouchableOpacity } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Projects } from '../api';
@@ -69,6 +70,20 @@ export default function ParsingScreen({ navigation, route }: Props) {
     };
   }, [projectId]);
 
+  const cancel = () =>
+    Alert.alert('Cancel import?', 'Parsing stops and this script is deleted.', [
+      { text: 'Keep going', style: 'cancel' },
+      {
+        text: 'Cancel import',
+        style: 'destructive',
+        onPress: () =>
+          Projects.cancelParse(projectId)
+            // Already finished or gone: either way there is nothing left to wait for.
+            .catch(() => {})
+            .finally(() => navigation.goBack()),
+      },
+    ]);
+
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
   const lineCount = project?.parsedLines?.length || 0;
@@ -106,7 +121,7 @@ export default function ParsingScreen({ navigation, route }: Props) {
             <View key={s.label} style={[styles.step, s.state === 'pending' && { opacity: 0.4 }]}>
               {s.state === 'done' ? (
                 <View style={[styles.stepDot, { backgroundColor: palette.green }]}>
-                  <Text style={styles.check}>✓</Text>
+                  <Feather name="check" size={14} color={palette.white} />
                 </View>
               ) : s.state === 'active' ? (
                 <View style={[styles.stepDot, styles.stepSpinner]} />
@@ -126,12 +141,16 @@ export default function ParsingScreen({ navigation, route }: Props) {
           ))}
         </View>
       </View>
+      <TouchableOpacity onPress={cancel} accessibilityRole="button" style={styles.cancel}>
+        <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: S.muted }}>Cancel import</Text>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  cancel: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 20, marginBottom: 12 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   ring: { width: 120, height: 120, borderRadius: 60, alignItems: 'center', justifyContent: 'center', marginBottom: 34 },
   ringInner: { width: 96, height: 96, borderRadius: 48, backgroundColor: S.bg, alignItems: 'center', justifyContent: 'center' },
@@ -142,5 +161,4 @@ const styles = StyleSheet.create({
   step: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stepDot: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   stepSpinner: { borderWidth: 2, borderColor: S.accent, borderTopColor: 'transparent' },
-  check: { color: palette.white, fontSize: 13, fontFamily: fonts.heavy },
 });

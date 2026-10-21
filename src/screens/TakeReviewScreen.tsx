@@ -1,11 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { Video, ResizeMode } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
+import { HeaderAction } from '../components/Bits';
 import GradientButton from '../components/GradientButton';
 import OutlineButton from '../components/OutlineButton';
 import { useTheme } from '../ThemeContext';
@@ -20,7 +21,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'TakeReview'>;
 export default function TakeReviewScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const { id: projectId, uri, durationMs } = route.params;
-  const videoRef = useRef<Video | null>(null);
+  const player = useVideoPlayer(uri ? { uri } : null);
   const [playing, setPlaying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -29,15 +30,19 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
   const secs = Math.round((durationMs || 0) / 1000);
   const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 
-  const togglePlay = async () => {
-    if (!videoRef.current) return;
-    if (playing) {
-      await videoRef.current.pauseAsync();
+  // Rewind to the first frame when the take ends, as the web's review player does.
+  useEffect(() => {
+    const sub = player.addListener('playToEnd', () => {
       setPlaying(false);
-    } else {
-      await videoRef.current.playAsync();
-      setPlaying(true);
-    }
+      player.currentTime = 0;
+    });
+    return () => sub.remove();
+  }, [player]);
+
+  const togglePlay = () => {
+    if (playing) player.pause();
+    else player.play();
+    setPlaying(!playing);
   };
 
   const save = async () => {
@@ -48,7 +53,7 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
     }
     setSaving(true);
     try {
-      const info = await FileSystem.getInfoAsync(uri, { size: true });
+      const info = await FileSystem.getInfoAsync(uri);
       const size = info.exists && 'size' in info ? info.size : 0;
       const name = uri.split('/').pop() || `take.${mimeType === 'video/quicktime' ? 'mov' : 'mp4'}`;
       const { uploadURL, objectPath } = await Storage.requestUploadUrl(name, size, mimeType);
@@ -90,31 +95,20 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
   return (
     <Screen>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.replace('Studio', { id: projectId })}>
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: theme.muted }}>‹ Retake</Text>
-        </TouchableOpacity>
+        <HeaderAction icon="chevron-left" label="Retake" color={theme.muted} onPress={() => navigation.replace('Studio', { id: projectId })} />
         <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: theme.text }}>Review take</Text>
-        <TouchableOpacity onPress={() => void save()} disabled={saving || saved}>
-          <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: saved ? theme.success : theme.accent }}>
-            {saved ? 'Saved ✓' : 'Save'}
-          </Text>
-        </TouchableOpacity>
+        <HeaderAction
+          icon={saved ? 'check' : undefined}
+          label={saved ? 'Saved' : 'Save'}
+          color={saved ? theme.success : theme.accent}
+          disabled={saving || saved}
+          onPress={() => void save()}
+        />
       </View>
 
       <View style={[styles.preview, { borderColor: theme.border }]}>
         {uri ? (
-          <Video
-            ref={videoRef}
-            source={{ uri }}
-            style={StyleSheet.absoluteFill}
-            resizeMode={ResizeMode.COVER}
-            onPlaybackStatusUpdate={(s) => {
-              if (s.isLoaded && s.didJustFinish) {
-                setPlaying(false);
-                videoRef.current?.setPositionAsync(0);
-              }
-            }}
-          />
+          <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
         ) : null}
         <TouchableOpacity
           onPress={() => void togglePlay()}
@@ -147,7 +141,7 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
         </View>
       ) : (
         <GradientButton
-          label={saved ? 'Saved to library ✓' : 'Save to Library'}
+          label={saved ? 'Saved to library' : 'Save to Library'}
           onPress={saved ? () => navigation.popToTop() : () => void save()}
         />
       )}

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { CommonActions, useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
 import { useBottomTabBarHeight, type BottomTabScreenProps } from '@react-navigation/bottom-tabs';
@@ -11,9 +11,9 @@ import OutlineButton from '../components/OutlineButton';
 import { Avatar } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
-import { Auth, Billing } from '../api';
+import { Auth, Billing, Feedback } from '../api';
 import { LEGAL_DOCUMENTS } from '../legal';
-import { fonts, palette } from '../theme';
+import { fonts } from '../theme';
 import type { RootStackParamList, Subscription, TabParamList } from '../types';
 
 type Props = CompositeScreenProps<
@@ -25,34 +25,23 @@ interface RowProps {
   label: string;
   value?: string;
   onPress?: () => void;
-  toggle?: boolean;
-  toggleValue?: boolean;
-  onToggle?: (value: boolean) => void;
   last?: boolean;
 }
 
-function Row({ label, value, onPress, toggle, toggleValue, onToggle, last }: RowProps) {
+function Row({ label, value, onPress, last }: RowProps) {
   const { theme } = useTheme();
   return (
     <TouchableOpacity
-      activeOpacity={toggle ? 1 : 0.7}
+      activeOpacity={0.7}
       onPress={onPress}
+      accessibilityRole="button"
       style={[styles.row, !last && { borderBottomWidth: 1, borderBottomColor: theme.divider }]}
     >
       <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
-      {toggle ? (
-        <Switch
-          value={toggleValue}
-          onValueChange={onToggle}
-          trackColor={{ true: theme.accent, false: theme.border }}
-          thumbColor={palette.white}
-        />
-      ) : (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {value ? <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: theme.muted }}>{value}</Text> : null}
-          <Feather name="chevron-right" size={18} color={theme.muted} />
-        </View>
-      )}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        {value ? <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: theme.muted }}>{value}</Text> : null}
+        <Feather name="chevron-right" size={18} color={theme.muted} />
+      </View>
     </TouchableOpacity>
   );
 }
@@ -73,12 +62,14 @@ export default function ProfileScreen({ navigation }: Props) {
   // so it can't drift from the navigator's own config.
   const tabBarHeight = useBottomTabBarHeight();
   const { user, signOut } = useAuth();
-  const [notifications, setNotifications] = useState(true);
   const [sub, setSub] = useState<Subscription | null>(null);
+  // The operator can switch feedback off; the row hides with it.
+  const [feedbackOn, setFeedbackOn] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       Billing.subscription().then(setSub).catch(() => setSub(null));
+      Feedback.eligibility().then((e) => setFeedbackOn(e.enabled)).catch(() => setFeedbackOn(false));
     }, [])
   );
 
@@ -133,12 +124,17 @@ export default function ProfileScreen({ navigation }: Props) {
 
         <Card padding={0}>
           <Row label="Change password" onPress={() => navigation.navigate('ResetPassword')} />
-          <Row label="Subscription & credits" onPress={() => navigation.navigate('Billing')} last />
+          <Row label="Plan & usage" onPress={() => navigation.navigate('Billing')} />
+          <Row label="Recording history" onPress={() => navigation.navigate('History')} last />
         </Card>
 
         <Card padding={0}>
-          <Row label="Appearance" value={mode === 'light' ? 'Light' : 'Stage'} onPress={toggle} />
-          <Row label="Notifications" toggle toggleValue={notifications} onToggle={setNotifications} last />
+          <Row label="Appearance" value={mode === 'light' ? 'Light' : 'Stage'} onPress={toggle} last />
+        </Card>
+
+        <Card padding={0}>
+          {feedbackOn ? <Row label="Send feedback" onPress={() => navigation.navigate('Feedback', { source: 'manual' })} /> : null}
+          <Row label="Contact support" onPress={() => navigation.navigate('Contact')} last />
         </Card>
 
         {/* The documents accepted at signup stay readable afterwards — both
@@ -158,7 +154,7 @@ export default function ProfileScreen({ navigation }: Props) {
         </Card>
 
         <OutlineButton label="Sign out" danger onPress={doSignOut} />
-        <TouchableOpacity onPress={deleteAccount} style={{ alignItems: 'center' }}>
+        <TouchableOpacity onPress={deleteAccount} accessibilityRole="button" style={{ alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
           <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>Delete account</Text>
         </TouchableOpacity>
       </ScrollView>

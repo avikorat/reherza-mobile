@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,7 +50,21 @@ export default function TabNavigator() {
         // palette guide lists "the active/selected tab" among the few surfaces
         // the brand may claim.
         tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 10, letterSpacing: 0.1 },
-        tabBarIcon: ({ color }) => <Feather name={ICONS[route.name]} size={24} color={color} />,
+        // Android gets Material 3's active-indicator pill behind the icon; iOS
+        // keeps the plain tinted glyph the tab bar convention expects.
+        tabBarIcon: ({ color, focused }) =>
+          Platform.OS === 'android' ? (
+            <View
+              style={{
+                width: 56, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
+                backgroundColor: focused ? theme.accentBg : 'transparent',
+              }}
+            >
+              <Feather name={ICONS[route.name]} size={22} color={color} />
+            </View>
+          ) : (
+            <Feather name={ICONS[route.name]} size={24} color={color} />
+          ),
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />

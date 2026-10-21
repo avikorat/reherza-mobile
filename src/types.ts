@@ -260,6 +260,79 @@ export interface SelfTape {
   createdAt: string;
 }
 
+/** Extra purchased credits (bought on the web). Milli-credits: 1000 = one credit. */
+export interface CreditStatus {
+  enabled: boolean;
+  validityDays: number;
+  balance: { milli: number; chars: number; credits: number; expiresSoonestAt: string | null };
+}
+
+export type FeedbackFeature =
+  | 'script_import'
+  | 'rehearsal_room'
+  | 'ai_scene_partner'
+  | 'delivery_analysis'
+  | 'self_tapes'
+  | 'session_results';
+
+export type FeedbackUseAgain = 'definitely' | 'probably' | 'not_sure' | 'probably_not' | 'definitely_not';
+
+export interface FeedbackEligibility {
+  /** Admin kill switch: when false, hide the prompt and the manual entry. */
+  enabled: boolean;
+  hasSubmitted: boolean;
+  shouldPrompt: boolean;
+  features: FeedbackFeature[];
+}
+
+export interface FeedbackBody {
+  ratings: Partial<Record<FeedbackFeature, number>>;
+  liked?: string;
+  frustrations?: string;
+  useAgain?: FeedbackUseAgain;
+  /** "prompt" is once per user; "manual" is unlimited. */
+  source?: 'prompt' | 'manual';
+}
+
+export interface HistoryEntry {
+  kind: 'rehearsal' | 'selftape';
+  id: string;
+  projectId: string;
+  createdAt: string;
+  durationSeconds: number;
+  /** False for a rehearsal whose audio was never saved or was deleted. */
+  hasRecording: boolean;
+  confidenceScore: number | null;
+  completedLines: number | null;
+  mimeType: string | null;
+  thumbnailUrl: string | null;
+}
+
+export interface HistoryScript {
+  projectId: string;
+  title: string;
+  /** False when the script itself is gone. */
+  projectExists: boolean;
+  lastActivityAt: string;
+  rehearsalCount: number;
+  selftapeCount: number;
+  thumbnailUrl: string | null;
+}
+
+export interface HistoryResponse {
+  scripts: HistoryScript[];
+  totalRehearsals: number;
+  totalSelftapes: number;
+}
+
+export interface HistoryDetail {
+  projectId: string;
+  title: string;
+  rehearsalCount: number;
+  selftapeCount: number;
+  entries: HistoryEntry[];
+}
+
 export interface UploadTicket {
   uploadURL: string;
   objectPath: string;
@@ -296,4 +369,8 @@ export type RootStackParamList = {
   Studio: { id?: string } | undefined;
   TakeReview: { id?: string; uri: string; durationMs: number };
   Billing: undefined;
+  History: undefined;
+  /** `source: 'prompt'` when opened from the once-per-user prompt. */
+  Feedback: { source?: 'prompt' | 'manual' } | undefined;
+  Contact: undefined;
 };

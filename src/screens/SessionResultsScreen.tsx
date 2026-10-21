@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { Feather } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -122,7 +122,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
                 : 'Delivery scoring is paused until your allowance renews. You can still rehearse your scenes.'}
             </Text>
             {noScore !== 'declined' ? (
-              <GradientButton small label="Upgrade plan" style={{ marginTop: 14 }} onPress={() => navigation.navigate('Billing')} />
+              <GradientButton small label="View usage" style={{ marginTop: 14 }} onPress={() => navigation.navigate('Billing')} />
             ) : null}
           </Card>
         ) : noScore === 'noSpeech' ? (
@@ -150,7 +150,25 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
           </Card>
         )}
 
-        {fb.recording?.clips?.length ? <ScenePlayer theme={theme} clips={fb.recording.clips} /> : null}
+        {fb.recording?.clips?.length ? (
+          <ScenePlayer
+            theme={theme}
+            clips={fb.recording.clips}
+            onDelete={() =>
+              Alert.alert('Delete recording?', 'The audio of this run is deleted. Your score and notes stay.', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () =>
+                    Sessions.deleteRecording(projectId, sessionId)
+                      .then(setSession)
+                      .catch((e) => Alert.alert('Could not delete recording', e instanceof Error ? e.message : 'Unknown error')),
+                },
+              ])
+            }
+          />
+        ) : null}
 
         {matrix && matrix.analyzedCount > 0 ? (
           <Card>
@@ -364,47 +382,48 @@ function LineCard({ theme, line }: { theme: T; line: LineResult }) {
 }
 
 // Plays the saved clips in performance order, straight from private storage.
-function ScenePlayer({ theme, clips }: { theme: T; clips: RecordingClip[] }) {
+function ScenePlayer({ theme, clips, onDelete }: { theme: T; clips: RecordingClip[]; onDelete: () => void }) {
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const sound = useRef<Audio.Sound | null>(null);
+  const player = useRef<AudioPlayer | null>(null);
   const iRef = useRef(0);
 
-  const unload = async () => {
-    const s = sound.current;
-    sound.current = null;
-    if (s) { s.setOnPlaybackStatusUpdate(null); await s.unloadAsync().catch(() => {}); }
+  const unload = () => {
+    const p = player.current;
+    player.current = null;
+    if (p) { try { p.pause(); } catch {} try { p.remove(); } catch {} }
   };
-  useEffect(() => () => { void unload(); }, []);
+  useEffect(() => unload, []);
 
   const playAt = async (n: number) => {
-    await unload();
+    unload();
     if (n >= clips.length) { setPlaying(false); setI(0); iRef.current = 0; return; }
     iRef.current = n;
     setI(n);
     setPlaying(true);
     try {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
       const token = getToken();
-      const { sound: s } = await Audio.Sound.createAsync(
+      const p = createAudioPlayer(
         { uri: Storage.objectUrl(clips[n].objectPath), headers: token ? { Authorization: `Bearer ${token}` } : undefined },
-        { shouldPlay: true }
+        { updateInterval: 250 }
       );
-      sound.current = s;
-      s.setOnPlaybackStatusUpdate((st) => {
-        if (st.isLoaded && st.didJustFinish) void playAt(iRef.current + 1);
-        if (!st.isLoaded && st.error) void playAt(iRef.current + 1);
+      player.current = p;
+      p.addListener('playbackStatusUpdate', (st) => {
+        if (player.current !== p) return;
+        if (st.didJustFinish || st.error) void playAt(iRef.current + 1);
       });
+      p.play();
     } catch {
       void playAt(n + 1);
     }
   };
 
   const toggle = async () => {
-    if (!sound.current) return playAt(i);
-    const st = await sound.current.getStatusAsync();
-    if (st.isLoaded && st.isPlaying) { await sound.current.pauseAsync(); setPlaying(false); }
-    else { await sound.current.playAsync(); setPlaying(true); }
+    const p = player.current;
+    if (!p) return playAt(i);
+    if (p.playing) { p.pause(); setPlaying(false); }
+    else { p.play(); setPlaying(true); }
   };
 
   const clipTag = (c: RecordingClip) => (c.role === 'user' ? 'You' : `${c.speaker} · AI`);
@@ -434,7 +453,12 @@ function ScenePlayer({ theme, clips }: { theme: T; clips: RecordingClip[] }) {
           ))}
         </ScrollView>
       </View>
-      <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: theme.muted, marginTop: 10 }}>Cloud recordings are kept for 7 days.</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+        <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: theme.muted }}>Cloud recordings are kept for 7 days.</Text>
+        <TouchableOpacity onPress={onDelete} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }}>
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.destructive }}>Delete recording</Text>
+        </TouchableOpacity>
+      </View>
     </Card>
   );
 }

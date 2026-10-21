@@ -81,6 +81,9 @@ export default function PlayhouseScreen({ navigation }: Props) {
                   <TouchableOpacity
                     key={g}
                     activeOpacity={0.8}
+                    hitSlop={{ top: 6, bottom: 6 }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
                     onPress={() => setFilter(g)}
                     style={[
                       styles.chip,
@@ -141,7 +144,7 @@ export default function PlayhouseScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   h1: { fontFamily: fonts.heavy, fontSize: 28, letterSpacing: -0.6, marginTop: 6, marginBottom: 3 },
   sub: { fontFamily: fonts.regular, fontSize: 13.5 },
-  chip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: radii.pill, borderWidth: 1 },
+  chip: { paddingHorizontal: 15, height: 38, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
   cardTitle: { fontFamily: fonts.bold, fontSize: 19, letterSpacing: -0.3, marginBottom: 4 },
   blurb: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 20, marginBottom: 12 },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

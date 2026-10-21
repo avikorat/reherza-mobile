@@ -56,7 +56,7 @@ export function silenceWindowMs(speechMs: number, expected: number): number {
   return mostlySpoken ? MOSTLY_SPOKEN_MS : PATIENT_MS;
 }
 
-// Metering thresholds. expo-av reports the recorder's peak power in dBFS
+// Metering thresholds. expo-audio reports the recorder's peak power in dBFS
 // (0 = clipping, -160 = silence). Speech on a phone mic sits around -25…-5.
 // ponytail: fixed threshold; add a noise-floor calibration (first 300 ms)
 // if quiet rooms or loud fans misfire.

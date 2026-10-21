@@ -48,18 +48,11 @@ export default function Field({
       <View
         style={[
           styles.field,
-          {
-            backgroundColor: theme.surface,
-            borderColor: active ? theme.accent : theme.border,
-            borderWidth: active ? 1.5 : 1,
-          },
-          active && {
-            shadowColor: theme.accent,
-            shadowOpacity: 0.18,
-            shadowRadius: 5,
-            shadowOffset: { width: 0, height: 0 },
-            elevation: 2,
-          },
+          // Only the colour changes on focus. Toggling elevation / shadow (or
+          // anything that re-lays-out the wrapper) on focus makes the new
+          // architecture blur the input immediately and hop to the next field
+          // (facebook/react-native#45798).
+          { backgroundColor: theme.surface, borderColor: active ? theme.accent : theme.border },
         ]}
       >
         <TextInput
@@ -100,6 +93,7 @@ const styles = StyleSheet.create({
   },
   field: {
     borderRadius: radii.field,
+    borderWidth: 1.5,
     paddingHorizontal: 14,
     paddingVertical: 4,
     flexDirection: 'row',

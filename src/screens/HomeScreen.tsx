@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
@@ -13,7 +13,7 @@ import OutlineButton from '../components/OutlineButton';
 import { Logo, Avatar, ProgressBar } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
-import { Projects, Usage, playableLines } from '../api';
+import { Dashboard, Feedback, Projects, Usage } from '../api';
 import { fonts, radii, stageSurfaces, diagonalStart, diagonalEnd, RED_DOT } from '../theme';
 import type { Project, RootStackParamList, TabParamList, UsageInfo } from '../types';
 
@@ -32,6 +32,10 @@ function initialsOf(name?: string): string {
     .toUpperCase();
 }
 
+// The feedback prompt is asked at most once per app launch; the server decides
+// whether it is due at all (and stops asking once answered or dismissed).
+let feedbackAsked = false;
+
 function greeting(): string {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -48,6 +52,7 @@ export default function HomeScreen({ navigation }: Props) {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
+  const [stats, setStats] = useState<{ totalSessions: number; totalLinesRehearsed: number } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +62,19 @@ export default function HomeScreen({ navigation }: Props) {
       const [p, u] = await Promise.all([Projects.list(), Usage.me().catch(() => null)]);
       setProjects(p);
       setUsage(u);
+      Dashboard.summary().then(setStats).catch(() => {});
+      if (!feedbackAsked) {
+        Feedback.eligibility()
+          .then((e) => {
+            if (!e.enabled || !e.shouldPrompt || feedbackAsked) return;
+            feedbackAsked = true;
+            Alert.alert('Got a minute?', 'Tell us how rehearsing with Reherza is going. It takes about a minute.', [
+              { text: 'Not now', style: 'cancel', onPress: () => void Feedback.dismiss() },
+              { text: 'Give feedback', onPress: () => navigation.navigate('Feedback', { source: 'prompt' }) },
+            ]);
+          })
+          .catch(() => {});
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load your studio.');
       setProjects((prev) => prev ?? []);
@@ -77,8 +95,8 @@ export default function HomeScreen({ navigation }: Props) {
 
   const first = (user?.name || 'Friend').split(' ')[0];
   const list = projects || [];
-  const sessions = list.reduce((n, p) => n + (p.sessionCount || 0), 0);
-  const lineCount = list.reduce((n, p) => n + playableLines(p).length, 0);
+  const sessions = stats?.totalSessions ?? list.reduce((n, p) => n + (p.sessionCount || 0), 0);
+  const lineCount = stats?.totalLinesRehearsed ?? 0;
   const inRehearsal = list.filter((p) => (p.sessionCount || 0) > 0).length;
   const usagePct = usage && usage.charLimit ? Math.min(1, usage.charsUsed / usage.charLimit) : 0;
 
@@ -144,7 +162,7 @@ export default function HomeScreen({ navigation }: Props) {
                 style={{ color: theme.accent, fontFamily: fonts.semibold }}
                 onPress={() => navigation.navigate('Billing')}
               >
-                {usage.exceeded ? 'Limit reached — upgrade' : 'Upgrade'}
+                {usage.exceeded ? 'Limit reached · details' : 'Details'}
               </Text>
             </Text>
           </Card>
@@ -154,11 +172,11 @@ export default function HomeScreen({ navigation }: Props) {
           {[
             { n: String(list.length), l: 'SCRIPTS' },
             { n: String(sessions), l: 'SESSIONS' },
-            { n: lineCount.toLocaleString(), l: 'LINES' },
+            { n: lineCount.toLocaleString(), l: 'LINES RUN' },
           ].map((s) => (
             <Card key={s.l} style={{ flex: 1 }} padding={13}>
-              <Text style={[styles.stat, { color: theme.text }]}>{s.n}</Text>
-              <Text style={[styles.statLabel, { color: theme.muted }]}>{s.l}</Text>
+              <Text style={[styles.stat, { color: theme.text }]} maxFontSizeMultiplier={1.3}>{s.n}</Text>
+              <Text style={[styles.statLabel, { color: theme.muted }]} numberOfLines={1} maxFontSizeMultiplier={1.15}>{s.l}</Text>
             </Card>
           ))}
         </View>

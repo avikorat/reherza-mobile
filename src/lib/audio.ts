@@ -1,41 +1,50 @@
-import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import {
+  AudioModule,
+  RecordingPresets,
+  createAudioPlayer,
+  getRecordingPermissionsAsync,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  type AudioPlayer,
+  type AudioRecorder,
+} from 'expo-audio';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // ── Audio session ─────────────────────────────────────────────────────────
-// expo-av's iOS PlayAndRecord category has no DefaultToSpeaker option, so a
-// session left in record mode plays the partner's line through the earpiece.
-// The mode is flipped per turn instead: playback for the AI line, record for
-// yours. The flip is skipped when already in the wanted mode.
+// The mode is flipped per turn: playback for the partner's line, record for
+// yours. Left in record mode, iOS routes playback to the earpiece. The flip
+// is skipped when already in the wanted mode.
 let recordMode: boolean | null = null;
 
 async function setMode(record: boolean): Promise<void> {
   if (recordMode === record) return;
   recordMode = record;
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: record,
-    playsInSilentModeIOS: true,
-    staysActiveInBackground: false,
-    shouldDuckAndroid: true,
-    playThroughEarpieceAndroid: false,
+  await setAudioModeAsync({
+    allowsRecording: record,
+    playsInSilentMode: true,
+    shouldPlayInBackground: false,
+    interruptionMode: 'duckOthers',
+    shouldRouteThroughEarpiece: false,
   });
 }
 
 export async function leaveRehearsalAudioMode(): Promise<void> {
   recordMode = null;
-  await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
+  await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
 }
 
 // ── Permission ────────────────────────────────────────────────────────────
 export type MicPermission = 'granted' | 'denied' | 'undetermined';
 
+const toState = (p: { granted: boolean; canAskAgain: boolean }): MicPermission =>
+  p.granted ? 'granted' : p.canAskAgain ? 'undetermined' : 'denied';
+
 export async function micPermission(): Promise<MicPermission> {
-  const p = await Audio.getPermissionsAsync();
-  return p.granted ? 'granted' : p.canAskAgain ? 'undetermined' : 'denied';
+  return toState(await getRecordingPermissionsAsync());
 }
 
 export async function ensureMicPermission(): Promise<MicPermission> {
-  const p = await Audio.requestPermissionsAsync();
-  return p.granted ? 'granted' : p.canAskAgain ? 'undetermined' : 'denied';
+  return toState(await requestRecordingPermissionsAsync());
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────
@@ -51,23 +60,23 @@ export async function cacheClip(key: string, audioBase64: string, mimeType: stri
   return uri;
 }
 
-let currentSound: Audio.Sound | null = null;
+let currentPlayer: AudioPlayer | null = null;
 
 /** Play a cached clip. Resolves when playback ends, or immediately if stopped. */
 export async function playClip(uri: string): Promise<void> {
   await stopPlayback();
   await setMode(false);
-  const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
-  currentSound = sound;
+  const player = createAudioPlayer({ uri }, { updateInterval: 100 });
+  currentPlayer = player;
   await new Promise<void>((resolve) => {
-    sound.setOnPlaybackStatusUpdate((status) => {
-      const finished = status.isLoaded ? status.didJustFinish : true;
-      if (!finished) return;
-      sound.setOnPlaybackStatusUpdate(null);
-      sound.unloadAsync().catch(() => {});
-      if (currentSound === sound) currentSound = null;
+    const sub = player.addListener('playbackStatusUpdate', (st) => {
+      if (!st.didJustFinish && !st.error) return;
+      sub.remove();
+      if (currentPlayer === player) currentPlayer = null;
+      player.remove();
       resolve();
     });
+    player.play();
   });
 }
 
@@ -80,16 +89,16 @@ export async function playBase64(audioBase64: string, mimeType = 'audio/mpeg', o
 }
 
 export async function stopPlayback(): Promise<void> {
-  const s = currentSound;
-  if (!s) return;
-  currentSound = null;
-  s.setOnPlaybackStatusUpdate(null);
-  await s.stopAsync().catch(() => {});
-  await s.unloadAsync().catch(() => {});
+  const p = currentPlayer;
+  if (!p) return;
+  currentPlayer = null;
+  try { p.pause(); } catch {}
+  try { p.remove(); } catch {}
 }
 
 // ── Recording ─────────────────────────────────────────────────────────────
-let currentRecording: Audio.Recording | null = null;
+let currentRecording: AudioRecorder | null = null;
+let meterTimer: ReturnType<typeof setInterval> | null = null;
 
 export interface RecordingSample {
   /** Peak power in dBFS; -160 = silence. */
@@ -99,11 +108,10 @@ export interface RecordingSample {
 
 // AAC in an .m4a container on both platforms: small, and what /api/transcribe
 // already accepts from the web's Safari path.
-const RECORDING_OPTIONS: Audio.RecordingOptions = {
-  ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+const RECORDING_OPTIONS = {
+  ...RecordingPresets.HIGH_QUALITY,
   isMeteringEnabled: true,
-  android: { ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android, extension: '.m4a' },
-  ios: { ...Audio.RecordingOptionsPresets.HIGH_QUALITY.ios, extension: '.m4a' },
+  extension: '.m4a',
 };
 
 const METER_INTERVAL_MS = 100;
@@ -112,14 +120,16 @@ const METER_INTERVAL_MS = 100;
 export async function startRecording(onSample: (s: RecordingSample) => void): Promise<void> {
   if (currentRecording) await stopRecording().catch(() => null);
   await setMode(true);
-  const { recording } = await Audio.Recording.createAsync(
-    RECORDING_OPTIONS,
-    (st) => {
-      if (st.isRecording) onSample({ db: st.metering ?? -160, durationMs: st.durationMillis });
-    },
-    METER_INTERVAL_MS
-  );
-  currentRecording = recording;
+  const rec = new AudioModule.AudioRecorder(RECORDING_OPTIONS);
+  await rec.prepareToRecordAsync();
+  rec.record();
+  currentRecording = rec;
+  // expo-audio only pushes status on finish/error, so the level is polled.
+  meterTimer = setInterval(() => {
+    if (currentRecording !== rec) return;
+    const st = rec.getStatus();
+    if (st.isRecording) onSample({ db: st.metering ?? -160, durationMs: st.durationMillis });
+  }, METER_INTERVAL_MS);
 }
 
 export interface RecordedAudio {
@@ -135,14 +145,15 @@ export async function stopRecording(): Promise<RecordedAudio | null> {
   const rec = currentRecording;
   if (!rec) return null;
   currentRecording = null;
-  rec.setOnRecordingStatusUpdate(null);
-  const status = await rec.getStatusAsync().catch(() => null);
+  if (meterTimer) { clearInterval(meterTimer); meterTimer = null; }
+  let durationMs = 0;
   try {
-    await rec.stopAndUnloadAsync();
+    durationMs = rec.getStatus().durationMillis;
+    await rec.stop();
   } catch {
     return null;
   }
-  const uri = rec.getURI();
+  const uri = rec.uri;
   if (!uri) return null;
   const [base64, info] = await Promise.all([
     FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }),
@@ -152,7 +163,7 @@ export async function stopRecording(): Promise<RecordedAudio | null> {
     uri,
     base64,
     mimeType: 'audio/mp4',
-    durationMs: status?.durationMillis ?? 0,
+    durationMs,
     bytes: info.exists ? info.size ?? 0 : 0,
   };
 }

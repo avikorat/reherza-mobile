@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import { BackButton } from '../components/Bits';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
-import { ApiError } from '../api';
+import { ApiError, Auth, Waitlist } from '../api';
 import { useSocialAuth } from '../lib/socialAuth';
 import { LEGAL_DOCUMENTS } from '../legal';
 import { fonts, radii, palette } from '../theme';
@@ -39,6 +39,26 @@ export default function CreateAccountScreen({ navigation }: Props) {
   // server enforces this independently (422 without a current set), but the
   // acceptance has to be a real action the user took, not an inference.
   const [accepted, setAccepted] = useState(false);
+  // The operator can close signups; the screen then offers the waitlist.
+  const [signupsOpen, setSignupsOpen] = useState(true);
+  useEffect(() => {
+    Auth.signupStatus().then((r) => setSignupsOpen(r.open)).catch(() => {});
+  }, []);
+
+  const joinWaitlist = async () => {
+    const email = form.email.trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setError('Enter your email above to join the waitlist.');
+      return;
+    }
+    try {
+      const r = await Waitlist.join(email);
+      Alert.alert(r.alreadyJoined ? 'Already on the list' : "You're on the list", "We'll email you when a spot opens.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not join the waitlist.');
+    }
+  };
+
   const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   // A first-time Google/Apple sign-in creates an account too, so it passes
@@ -59,6 +79,7 @@ export default function CreateAccountScreen({ navigation }: Props) {
 
   const google = useSocialAuth('Google', onSocialToken, onSocialError);
   const apple = useSocialAuth('SignInWithApple', onSocialToken, onSocialError);
+  const showSocial = __DEV__ || (google.available && (Platform.OS !== 'ios' || apple.available));
 
   const submit = async () => {
     const name = `${form.first.trim()} ${form.last.trim()}`.trim();
@@ -80,7 +101,11 @@ export default function CreateAccountScreen({ navigation }: Props) {
       }
     } catch (e) {
       if (e instanceof ApiError && (e.body as { code?: string } | null)?.code === 'signups_closed') {
-        Alert.alert('Signups are full', e.message);
+        setSignupsOpen(false);
+        Alert.alert('Signups are full', e.message, [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Join waitlist', onPress: () => void joinWaitlist() },
+        ]);
       } else if (e instanceof ApiError && e.status === 422) {
         // The server's required versions are ahead of this build's registry
         // (src/legal.ts). Nothing the user can fix by retrying.
@@ -116,56 +141,71 @@ export default function CreateAccountScreen({ navigation }: Props) {
 
         {error ? <Text style={[styles.error, { color: theme.destructive }]}>{error}</Text> : null}
 
+        {!signupsOpen ? (
+          <View style={{ marginBottom: 14 }}>
+            <Text style={{ fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, color: theme.muted, marginBottom: 10 }}>
+              New accounts are paused right now. Leave your email and we'll let you know when a spot opens.
+            </Text>
+            <GradientButton label="Join the waitlist" onPress={joinWaitlist} />
+          </View>
+        ) : null}
+
         {busy ? (
           <View style={{ paddingVertical: 16, alignItems: 'center' }}>
             <ActivityIndicator color={theme.accent} />
           </View>
-        ) : (
+        ) : signupsOpen ? (
           <GradientButton label="Create Account" onPress={submit} />
-        )}
+        ) : null}
 
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => {
-            if (!requireAcceptance()) return;
-            google.available
-              ? google.prompt()
-              : Alert.alert('Google sign-up', UNCONFIGURED_MESSAGE);
-          }}
-          style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
-        >
-          {google.busy ? (
-            <ActivityIndicator size="small" color={theme.accent} />
-          ) : (
-            <>
-              <GoogleMark size={17} />
-              <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.text }}>Sign up with Google</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        {Platform.OS === 'ios' ? (
+        {/* Release builds hide social sign-in unless it is configured, and on
+            iOS Google is only offered alongside Sign in with Apple (App Store 4.8). */}
+        {showSocial ? (
+          <>
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => {
-            if (!requireAcceptance()) return;
-            apple.available
-              ? apple.prompt()
-              : Alert.alert('Sign in with Apple', UNCONFIGURED_MESSAGE);
-          }}
-            style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent', marginTop: 0, marginBottom: 22 }]}
+              if (!requireAcceptance()) return;
+              google.available
+                ? google.prompt()
+                : Alert.alert('Google sign-up', UNCONFIGURED_MESSAGE);
+            }}
+            style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
           >
-            {apple.busy ? (
-              <ActivityIndicator size="small" color={theme.key === 'stage' ? '#000' : '#fff'} />
+            {google.busy ? (
+              <ActivityIndicator size="small" color={theme.accent} />
             ) : (
               <>
-                <Text style={{ fontSize: 17, color: theme.key === 'stage' ? '#000' : '#fff' }}></Text>
-                <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.key === 'stage' ? '#000' : '#fff' }}>
-                  Sign up with Apple
-                </Text>
+                <GoogleMark size={17} />
+                <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.text }}>Sign up with Google</Text>
               </>
             )}
           </TouchableOpacity>
+
+          {Platform.OS === 'ios' ? (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+              if (!requireAcceptance()) return;
+              apple.available
+                ? apple.prompt()
+                : Alert.alert('Sign in with Apple', UNCONFIGURED_MESSAGE);
+            }}
+              style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent', marginTop: 0, marginBottom: 22 }]}
+            >
+              {apple.busy ? (
+                <ActivityIndicator size="small" color={theme.key === 'stage' ? '#000' : '#fff'} />
+              ) : (
+                <>
+                  <Text style={{ fontSize: 17, color: theme.key === 'stage' ? '#000' : '#fff' }}></Text>
+                  <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.key === 'stage' ? '#000' : '#fff' }}>
+                    Sign up with Apple
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
+          </>
         ) : null}
 
         {/* The consent gate. Every document the server requires is named here

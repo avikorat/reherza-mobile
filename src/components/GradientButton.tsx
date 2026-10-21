@@ -48,7 +48,7 @@ export default function GradientButton({
         end={gradientEnd}
         style={[styles.grad, { paddingVertical: small ? 13 : 16 }]}
       >
-        <Text style={[styles.label, small && styles.labelSmall, textStyle]}>{label}</Text>
+        <Text style={[styles.label, small && styles.labelSmall, textStyle]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{label}</Text>
       </LinearGradient>
     </TouchableOpacity>
   );

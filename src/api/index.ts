@@ -3,11 +3,15 @@
 import { api, ApiError } from './client';
 import { API_URL } from '../config';
 import type {
+  CreditStatus,
   DeliveryAnalysis,
+  FeedbackBody,
+  FeedbackEligibility,
+  HistoryDetail,
+  HistoryResponse,
   DemoScene,
   ParsedLine,
   PlayableLine,
-  Plan,
   Project,
   SelfTape,
   Session,
@@ -51,6 +55,17 @@ export const Auth = {
   deleteAccount: () => api<{ message: string }>('/auth/account', { method: 'DELETE' }),
 };
 
+// When signups are closed the app offers this instead of an account.
+export const Waitlist = {
+  join: (email: string) =>
+    api<{ message: string; alreadyJoined: boolean }>('/waitlist', { method: 'POST', body: { email, source: 'mobile' } }),
+};
+
+export const Contact = {
+  send: (body: { name: string; email: string; message: string }) =>
+    api<{ message: string }>('/contact', { method: 'POST', body: { ...body, source: 'mobile' } }),
+};
+
 // ── Projects / scripts ─────────────────────────────────────────────────
 export const Projects = {
   list: () => api<Project[]>('/projects'),
@@ -66,11 +81,32 @@ export const Projects = {
       timeout: 120000,
     }),
   uploadLimits: () => api<{ maxPages: number; maxWords: number }>('/scripts/upload-limits'),
+  /** Model-free: what importing this costs, and whether the user can afford it. */
+  preflight: (body: { rawScript: string } | { filename: string; dataBase64: string }) =>
+    api<{ requiredMilli: number; remainingMilli: number; pages?: number; allowed: boolean; reused?: boolean }>(
+      '/scripts/preflight',
+      { method: 'POST', body, timeout: 120000 }
+    ),
+  /** Text out of a file without creating a project (may escalate a scan to vision). */
+  extract: (filename: string, dataBase64: string, forceVision = false) =>
+    api<{ text: string }>('/scripts/extract', {
+      method: 'POST',
+      body: { filename, dataBase64, forceVision },
+      timeout: 120000,
+    }),
+  /** Aborts an in-progress parse and deletes the script. */
+  cancelParse: (id: string) => api<{ cancelled: true }>(`/projects/${id}/cancel-parse`, { method: 'POST' }),
+  /** What the next change to this script's lines or role costs. `milli` 0 = free. */
+  editPrice: (id: string) => api<{ milli: number; voiced: boolean }>(`/projects/${id}/edit-price`),
   update: (id: string, patch: Partial<Project>) =>
     api<Project>(`/projects/${id}`, { method: 'PATCH', body: patch }),
   reprocess: (id: string) => api<Project>(`/projects/${id}/reprocess`, { method: 'POST' }),
   deleteLine: (id: string, lineIndex: number) =>
     api<Project>(`/projects/${id}/lines/${lineIndex}`, { method: 'DELETE' }),
+  // One request for the whole selection: the server renumbers after each
+  // delete, and refuses (409) if `expectedTotal` no longer matches.
+  bulkDeleteLines: (id: string, lineIndexes: number[], expectedTotal?: number) =>
+    api<Project>(`/projects/${id}/lines/bulk-delete`, { method: 'POST', body: { lineIndexes, expectedTotal } }),
   remove: (id: string) => api<{ message: string }>(`/projects/${id}`, { method: 'DELETE' }),
   /** What the next delivery analysis of this script costs. `milli` 0 = free. */
   analysisPrice: (id: string) =>
@@ -88,6 +124,11 @@ export const DemoScenes = {
 export const Voices = {
   available: () => api<Voice[]>('/voices/available'),
   forProject: (projectId: string) => api<VoiceAssignment[]>(`/projects/${projectId}/voices`),
+  /** What re-voicing this speaker costs. `milli` 0 = free. */
+  changePrice: (projectId: string, speaker: string) =>
+    api<{ milli: number; isFirstPick: boolean; currentVoiceId: string | null }>(
+      `/projects/${projectId}/voices/change-price?speaker=${encodeURIComponent(speaker)}`
+    ),
   assign: (projectId: string, speaker: string, voiceId: string, voiceName: string) =>
     api<VoiceAssignment>(`/projects/${projectId}/voices`, {
       method: 'POST',
@@ -175,6 +216,9 @@ export const Sessions = {
     api<Session>(`/projects/${projectId}/sessions/${sessionId}`),
   update: (projectId: string, sessionId: string, patch: SessionPatch) =>
     api<Session>(`/projects/${projectId}/sessions/${sessionId}`, { method: 'PATCH', body: patch }),
+  /** Deletes the saved audio only; the score and stats stay. */
+  deleteRecording: (projectId: string, sessionId: string) =>
+    api<Session>(`/projects/${projectId}/sessions/${sessionId}/recording`, { method: 'DELETE' }),
   // Idempotent: frozen into the session's feedback on first success.
   coachSummary: (projectId: string, sessionId: string) =>
     api<SessionCoaching>(`/projects/${projectId}/sessions/${sessionId}/coach-summary`, {
@@ -216,22 +260,41 @@ export const Usage = {
   me: () => api<UsageInfo>('/usage/me'),
 };
 
-export const Billing = {
-  plans: () => api<Plan[]>('/billing/plans'),
-  config: () => api<{ publishableKey: string; taxEnabled: boolean }>('/billing/config'),
-  subscription: () => api<Subscription | null>('/billing/subscription'),
-  paymentMethod: () =>
-    api<{ brand: string; last4: string; expMonth: number; expYear: number } | null>(
-      '/billing/payment-method'
+export const Dashboard = {
+  summary: () =>
+    api<{ totalProjects: number; totalSessions: number; totalLinesRehearsed: number; recentProjects: Project[] }>(
+      '/dashboard/summary'
     ),
-  invoices: () => api<unknown[]>('/billing/invoices'),
-  checkout: (plan: string) => api<{ url: string }>('/billing/checkout', { method: 'POST', body: { plan } }),
-  portal: () => api<{ url: string }>('/billing/portal', { method: 'POST' }),
-  changePlan: (plan: string) =>
-    api<{ ok: boolean }>('/billing/subscription/change-plan', { method: 'POST', body: { plan } }),
+};
+
+export const History = {
+  list: () => api<HistoryResponse>('/history'),
+  forProject: (projectId: string) => api<HistoryDetail>(`/history/${projectId}`),
+};
+
+// Read-only on purpose. Plans, credit packs and card changes are bought on the
+// web with Stripe; selling digital goods in-app without Apple IAP / Google Play
+// Billing breaks App Store 3.1.1 and Play's payments policy, and so does linking
+// out to buy. The Stripe purchase routes (checkout, credits/checkout, portal,
+// change-plan, setup-intent, invoices/:id/pay, customer/address, …) are
+// therefore not called from this app. Cancelling is not a purchase, so it stays.
+export const Billing = {
+  subscription: () => api<Subscription | null>('/billing/subscription'),
+  credits: () => api<CreditStatus>('/billing/credits'),
   cancel: (atPeriodEnd = true) =>
     api<{ ok: boolean }>('/billing/subscription/cancel', { method: 'POST', body: { atPeriodEnd } }),
-  resume: () => api<{ ok: boolean }>('/billing/subscription/resume', { method: 'POST' }),
+};
+
+// ── Product feedback ───────────────────────────────────────────────────
+export const Feedback = {
+  eligibility: () => api<FeedbackEligibility>('/feedback/eligibility'),
+  submit: (body: FeedbackBody) =>
+    api<{ message: string; duplicate: boolean }>('/feedback', { method: 'POST', body }),
+  /** The user closed the prompt; the server answers 204 regardless. */
+  dismiss: () => api<null>('/feedback/dismiss', { method: 'POST' }).catch(() => null),
+  draft: () => api<{ draft: (FeedbackBody & { step: number }) | null }>('/feedback/draft'),
+  saveDraft: (body: FeedbackBody & { step: number }) => api<null>('/feedback/draft', { method: 'PUT', body }),
+  clearDraft: () => api<null>('/feedback/draft', { method: 'DELETE' }),
 };
 
 // ── Self-tapes & storage ───────────────────────────────────────────────
@@ -257,6 +320,8 @@ export const Storage = {
     }),
   /** Streams a private object (owner ACL) — send the bearer token with it. */
   objectUrl: (objectPath: string) => `${API_URL}/storage/objects/${objectPath.replace(/^\/objects\//, '')}`,
+  /** Unauthenticated public assets (e.g. Playhouse artwork). */
+  publicUrl: (filePath: string) => `${API_URL}/storage/public-objects/${filePath.replace(/^\//, '')}`,
 };
 
 // ── Helpers shared by screens ──────────────────────────────────────────
@@ -268,13 +333,17 @@ export function myCharacters(project: Project | null | undefined): string[] {
   return [];
 }
 
+// Who performs a line — the web's `roleOf`: an explicit per-line role set in
+// the editor wins; otherwise the line is yours when its speaker is a character
+// you chose. The editor and the rehearsal room both go through this.
+export function isMine(line: ParsedLine, project: Project | null | undefined): boolean {
+  if (line.role) return line.role === 'user';
+  return myCharacters(project).includes(line.speaker);
+}
+
 // The dialogue lines of a project, each tagged with `mine`.
 export function playableLines(project: Project | null | undefined): PlayableLine[] {
-  const mine = myCharacters(project);
   return (project?.parsedLines || [])
     .filter((l: ParsedLine) => (l.type ? l.type === 'dialogue' : true) && l.spoken !== false)
-    .map((l: ParsedLine) => ({
-      ...l,
-      mine: mine.length ? mine.includes(l.speaker) : l.role === 'user',
-    }));
+    .map((l: ParsedLine) => ({ ...l, mine: isMine(l, project) }));
 }

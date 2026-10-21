@@ -20,8 +20,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Reherza listens while you rehearse so it can check your lines against the script.",
-        "NSCameraUsageDescription": "Reherza uses the camera to record your self-tapes in the Studio."
+        "NSMicrophoneUsageDescription": "Reherza listens while you rehearse so it can tell when your line ends, check your words against the script, and score your delivery. Audio is captured only on your turn.",
+        "NSCameraUsageDescription": "Reherza records your self-tapes with the camera in the Studio. Recording starts only when you tap the red button."
       }
     },
     "android": {
@@ -44,7 +44,26 @@
     },
     "owner": "avikorats-team",
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font",
+      "expo-sharing",
+      "expo-splash-screen",
+      "expo-status-bar",
+      "expo-web-browser",
+      "expo-video",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Reherza listens while you rehearse so it can tell when your line ends, check your words against the script, and score your delivery. Audio is captured only on your turn."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Reherza records your self-tapes with the camera in the Studio. Recording starts only when you tap the red button.",
+          "microphonePermission": "Reherza listens while you rehearse so it can tell when your line ends, check your words against the script, and score your delivery. Audio is captured only on your turn."
+        }
+      ]
     ]
   }
 }

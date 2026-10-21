@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import Screen from '../components/Screen';
 import Field from '../components/Field';
 import GradientButton from '../components/GradientButton';
-import { BackButton } from '../components/Bits';
+import { BackButton, HeaderAction } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { ApiError, Projects } from '../api';
 import {
@@ -35,12 +35,17 @@ export default function NewScriptScreen({ navigation }: Props) {
   const [pasted, setPasted] = useState('');
   const [file, setFile] = useState<PickedFile | null>(null);
   const [busy, setBusy] = useState(false);
+  const [maxPages, setMaxPages] = useState<number | null>(null);
+
+  useEffect(() => {
+    Projects.uploadLimits().then((l) => setMaxPages(l.maxPages)).catch(() => {});
+  }, []);
 
   const fail = (e: unknown) => {
     if (e instanceof ApiError && e.status === 402) {
       Alert.alert('Monthly limit reached', e.message, [
         { text: 'Not now' },
-        { text: 'See plans', onPress: () => navigation.navigate('Billing') },
+        { text: 'View usage', onPress: () => navigation.navigate('Billing') },
       ]);
     } else {
       Alert.alert('Import failed', e instanceof Error ? e.message : 'Unknown error');
@@ -77,6 +82,37 @@ export default function NewScriptScreen({ navigation }: Props) {
     }
     setBusy(true);
     try {
+      // The model-free price check. It refuses an oversized script with the
+      // import's own message; anything else unexpected leaves the import to
+      // be the gate.
+      const price = await Projects.preflight(
+        file ? { filename: file.name, dataBase64: file.base64 } : { rawScript: pasted.trim() }
+      ).catch((e) => {
+        if (e instanceof ApiError && (e.status === 400 || e.status === 413 || e.status === 422)) throw e;
+        return null;
+      });
+      if (price && !price.allowed) {
+        Alert.alert(
+          'Not enough credits',
+          `This script needs ${price.requiredMilli / 1000} credits${price.pages ? ` (${price.pages} pages)` : ''}; you have ${Math.floor(price.remainingMilli / 10) / 100}.`,
+          [{ text: 'OK' }, { text: 'View usage', onPress: () => navigation.navigate('Billing') }]
+        );
+        return;
+      }
+      if (price && price.requiredMilli > 0) {
+        const ok = await new Promise<boolean>((resolve) =>
+          Alert.alert(
+            'Import this script?',
+            `It uses ${price.requiredMilli / 1000} credit${price.requiredMilli === 1000 ? '' : 's'}${price.pages ? ` (${price.pages} pages)` : ''}.`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Import', onPress: () => resolve(true) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) }
+          )
+        );
+        if (!ok) return;
+      }
       const project = file
         ? await Projects.importFile(t, file.name, file.base64)
         : await Projects.importText(t, pasted.trim());
@@ -93,9 +129,7 @@ export default function NewScriptScreen({ navigation }: Props) {
       <View style={styles.header}>
         <BackButton onPress={() => navigation.goBack()} />
         <Text style={[styles.headerTitle, { color: theme.text }]}>New Script</Text>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.muted }}>Cancel</Text>
-        </TouchableOpacity>
+        <HeaderAction label="Cancel" color={theme.muted} onPress={() => navigation.goBack()} />
       </View>
 
       <ScrollView
@@ -124,7 +158,7 @@ export default function NewScriptScreen({ navigation }: Props) {
             {file ? file.name : 'Upload your script'}
           </Text>
           <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: theme.muted }}>
-            {file ? 'Tap to choose a different file' : 'PDF, DOCX or TXT · up to 15 MB'}
+            {file ? 'Tap to choose a different file' : `PDF, DOCX or TXT · up to ${maxPages ? `${maxPages} pages` : '15 MB'}`}
           </Text>
           {!file ? (
             <View style={[styles.browse, { borderColor: theme.accent }]}>
@@ -166,6 +200,14 @@ export default function NewScriptScreen({ navigation }: Props) {
         ) : (
           <GradientButton label="Import & Parse" style={{ marginTop: 16 }} onPress={submit} />
         )}
+        {/* Apple 5.1.2(i): say who the script goes to before it is sent. */}
+        <Text style={{ fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 17, color: theme.muted, marginTop: 12, textAlign: 'center' }}>
+          Your script is sent to Reherza and processed by OpenAI to find its characters and lines, and its partner lines are
+          voiced by ElevenLabs.{' '}
+          <Text style={{ color: theme.accent, fontFamily: fonts.semibold }} onPress={() => navigation.navigate('Legal', { docId: 'privacy' })}>
+            Privacy Policy
+          </Text>
+        </Text>
       </ScrollView>
     </Screen>
   );

@@ -50,7 +50,6 @@ function buildProject(userId, title, lines, status = 'ready') {
     rawScript: lines.map((l) => `${l.speaker}: ${l.text}`).join('\n'),
     parsedLines: lines.map((l, i) => ({
       speaker: l.speaker, text: l.text, lineIndex: i, type: 'dialogue',
-      role: l.speaker === speakers[1] || speakers.length === 1 ? 'user' : 'ai',
       emotion: l.emotion, intensity: 0.5, spoken: true, confidence: 0.98,
     })),
     speakers, selectedCharacter: null, selectedCharacters: [],
@@ -115,7 +114,12 @@ http.createServer((req, res) => {
       return res.end(buf);
     }
 
-    if (!authed && !['/demo-scenes', '/voices/available', '/billing/plans', '/healthz'].includes(path))
+    // ── public ──
+    if (path === '/auth/signup-status') return send(res, 200, { open: true });
+    if (path === '/waitlist' && req.method === 'POST') return send(res, 200, { message: 'Joined', alreadyJoined: false });
+    if (path === '/contact' && req.method === 'POST') return send(res, 200, { message: 'Received' });
+
+    if (!authed && !['/demo-scenes', '/voices/available', '/healthz'].includes(path))
       return send(res, 401, { error: 'Unauthorized' });
 
     // ── storage & self-tapes ──
@@ -130,10 +134,56 @@ http.createServer((req, res) => {
     if (seg[0] === 'projects' && seg[2] === 'selftapes') {
       if (req.method === 'POST')
         return send(res, 201, { id: uuid('take'), projectId: seg[1], ...body, createdAt: new Date().toISOString() });
+      if (seg[4] === 'download-url') return send(res, 200, { url: `http://10.0.2.2:${PORT}/sample.mp4`, expiresInSec: 300 });
+      if (req.method === 'DELETE') return send(res, 200, { message: 'Deleted' });
       return send(res, 200, []);
     }
 
+    // ── history / dashboard / feedback ──
+    if (path === '/dashboard/summary') {
+      const all = [...sessions.values()];
+      return send(res, 200, { totalProjects: projects.size, totalSessions: all.length,
+        totalLinesRehearsed: all.reduce((n, s) => n + (s.completedLines || 0), 0), recentProjects: [...projects.values()].slice(-4) });
+    }
+    if (path === '/history') {
+      const scripts = [...projects.values()].filter((p) => p.sessionCount).map((p) => ({ projectId: p.id, title: p.title, projectExists: true,
+        lastActivityAt: p.lastSessionAt, rehearsalCount: p.sessionCount, selftapeCount: 0, thumbnailUrl: null }));
+      return send(res, 200, { scripts, totalRehearsals: sessions.size, totalSelftapes: 0 });
+    }
+    if (seg[0] === 'history' && seg[1]) {
+      const p = projects.get(seg[1]);
+      const entries = [...sessions.values()].filter((s) => s.projectId === seg[1]).map((s) => ({ kind: 'rehearsal', id: s.id, projectId: s.projectId,
+        createdAt: s.createdAt, durationSeconds: s.duration, hasRecording: !!s.feedback?.recording?.clips?.length,
+        confidenceScore: s.feedback?.confidenceScore ?? null, completedLines: s.completedLines, mimeType: null, thumbnailUrl: null }));
+      return send(res, 200, { projectId: seg[1], title: p?.title || '', rehearsalCount: entries.length, selftapeCount: 0, entries });
+    }
+    if (path === '/feedback/eligibility')
+      return send(res, 200, { enabled: true, hasSubmitted: false, shouldPrompt: false, scriptsRehearsed: 0, threshold: 5,
+        features: ['script_import', 'rehearsal_room', 'ai_scene_partner', 'delivery_analysis', 'self_tapes', 'session_results'] });
+    if (path === '/feedback/draft') return req.method === 'GET' ? send(res, 200, { draft: null }) : send(res, 204);
+    if (path === '/feedback' || path === '/feedback/dismiss') return send(res, path === '/feedback' ? 201 : 204, path === '/feedback' ? { message: 'Thanks', duplicate: false } : undefined);
+    if (path === '/billing/credits')
+      return send(res, 200, { enabled: true, pricePerCreditMicros: 0, minPerPurchase: 1, maxPerPurchase: 100, validityDays: 365, balance: { milli: 0, chars: 0, credits: 0, expiresSoonestAt: null }, batches: [] });
+
     // ── projects ──
+    if (path === '/scripts/upload-limits') return send(res, 200, { maxPages: 10, maxWords: 5000 });
+    if (path === '/scripts/preflight') return send(res, 200, { requiredMilli: 1000, remainingMilli: 20000, pages: 1, allowed: true });
+    if (seg[0] === 'projects' && seg[2] === 'edit-price') return send(res, 200, { milli: 0, voiced: false });
+    if (seg[0] === 'projects' && seg[2] === 'voices' && seg[3] === 'change-price') return send(res, 200, { milli: 0, isFirstPick: true, currentVoiceId: null });
+    if (seg[0] === 'projects' && seg[2] === 'cancel-parse') { projects.delete(seg[1]); return send(res, 200, { cancelled: true }); }
+    if (seg[0] === 'projects' && seg[2] === 'lines' && seg[3] === 'bulk-delete') {
+      const p = projects.get(seg[1]);
+      if (!p) return send(res, 404, { error: 'Not found' });
+      if (body.expectedTotal !== undefined && body.expectedTotal !== p.parsedLines.length) return send(res, 409, { error: 'The script changed — reload and try again.' });
+      p.parsedLines = p.parsedLines.filter((l) => !body.lineIndexes.includes(l.lineIndex)).map((l, i) => ({ ...l, lineIndex: i }));
+      return send(res, 200, p);
+    }
+    if (seg[0] === 'projects' && seg[2] === 'sessions' && seg[4] === 'recording' && req.method === 'DELETE') {
+      const s = sessions.get(seg[3]);
+      if (!s) return send(res, 404, { error: 'Not found' });
+      delete s.feedback.recording;
+      return send(res, 200, s);
+    }
     if (path === '/projects' && req.method === 'GET')
       return send(res, 200, [...projects.values()].reverse());
     if (path === '/scripts/import' && req.method === 'POST') {
@@ -240,11 +290,7 @@ http.createServer((req, res) => {
     if (path === '/usage/me')
       return send(res, 200, { costMicrosUsed: 1830000, costLimitMicros: 5000000, charsUsed: 42150, charLimit: 100000,
         analysesUsed: 12, analysisLimit: 30, exceeded: false, analysesExceeded: false, isMasterAdmin: false });
-    if (path === '/billing/plans')
-      return send(res, 200, [
-        { id: 'pro', name: 'Pro', priceAmount: 1500, currency: 'usd', billingPeriod: 'month', voiceCharacterLimit: 100000, analysisLimit: 30, features: ['Priority support'], purchasable: true },
-        { id: 'studio', name: 'Studio', priceAmount: 3900, currency: 'usd', billingPeriod: 'month', voiceCharacterLimit: 400000, analysisLimit: null, features: ['Everything unlimited'], purchasable: true },
-      ]);
+    if (path === '/billing/subscription/cancel') return send(res, 200, { ok: true });
     if (path === '/billing/subscription' && req.method === 'GET') return send(res, 200, null);
     if (path === '/healthz') return send(res, 200, { status: 'ok' });
 
