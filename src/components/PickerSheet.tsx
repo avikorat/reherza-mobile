@@ -3,7 +3,7 @@ import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'rea
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeContext';
-import { fonts } from '../theme';
+import { fonts, PRESS_OPACITY } from '../theme';
 
 // A bottom sheet standing in for the web's <select>.
 export default function PickerSheet<T extends string>({
@@ -27,7 +27,7 @@ export default function PickerSheet<T extends string>({
           {options.map((o) => {
             const on = o.value === value;
             return (
-              <TouchableOpacity
+              <TouchableOpacity activeOpacity={PRESS_OPACITY}
                 key={o.value}
                 onPress={() => { onPick(o.value); onClose(); }}
                 accessibilityRole="button"

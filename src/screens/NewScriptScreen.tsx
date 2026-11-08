@@ -14,7 +14,7 @@ import { useToast } from '../components/Toast';
 import { useTheme } from '../ThemeContext';
 import { ApiError, Projects, Usage } from '../api';
 import { creditsLabel } from '../lib/format';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 import type { RootStackParamList, UsageInfo } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NewScript'>;
@@ -198,12 +198,12 @@ export default function NewScriptScreen({ navigation }: Props) {
               <Text numberOfLines={1} style={{ fontFamily: fonts.semibold, fontSize: 13.5, color: theme.text }}>{file.name}</Text>
               <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginTop: 2 }}>{(file.size / 1024).toFixed(0)} KB</Text>
             </View>
-            <TouchableOpacity onPress={() => { measureSeq.current++; setFile(null); setPreflight(null); setSizeError(null); }} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => { measureSeq.current++; setFile(null); setPreflight(null); setSizeError(null); }} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }}>
               <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>Remove</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity onPress={pickFile} disabled={disabled} accessibilityRole="button" activeOpacity={0.8} style={[styles.drop, { borderColor: theme.borderStrong, opacity: disabled ? 0.6 : 1 }]}>
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={pickFile} disabled={disabled} accessibilityRole="button" style={[styles.drop, { borderColor: theme.borderStrong, opacity: disabled ? 0.6 : 1 }]}>
             <Feather name="upload-cloud" size={28} color={theme.muted} style={{ marginBottom: 10 }} />
             <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: theme.text }}>Tap to choose a file</Text>
             <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginTop: 3 }}>PDF, DOCX, or TXT{maxPages ? ` · up to ${maxPages} pages` : ''}</Text>
@@ -214,7 +214,7 @@ export default function NewScriptScreen({ navigation }: Props) {
           <View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.muted }}>Or paste your script</Text>
-              <TouchableOpacity disabled={disabled} onPress={() => { setRaw(DEMO_SCRIPT); if (!title) setTitle('Opening Night'); }} accessibilityRole="button" style={{ minHeight: 36, justifyContent: 'center' }}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} disabled={disabled} onPress={() => { setRaw(DEMO_SCRIPT); if (!title) setTitle('Opening Night'); }} accessibilityRole="button" style={{ minHeight: 36, justifyContent: 'center' }}>
                 <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.accent }}>Load example</Text>
               </TouchableOpacity>
             </View>

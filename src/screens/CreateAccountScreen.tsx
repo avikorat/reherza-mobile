@@ -15,7 +15,7 @@ import { CognitoError } from '../lib/cognito';
 import { useSocialAuth } from '../lib/socialAuth';
 import { LEGAL_DOCUMENTS } from '../legal';
 import { toE164 } from '../lib/format';
-import { fonts, radii, palette } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateAccount'>;
@@ -161,8 +161,7 @@ export default function CreateAccountScreen({ navigation }: Props) {
           <Card padding={22} style={{ gap: 14 }}>
             {showSocial ? (
               <>
-                <TouchableOpacity
-                  activeOpacity={0.85}
+                <TouchableOpacity activeOpacity={PRESS_OPACITY}
                   accessibilityRole="button"
                   onPress={() => { if (requireAcceptance() && google.available) google.prompt(); }}
                   style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
@@ -175,8 +174,7 @@ export default function CreateAccountScreen({ navigation }: Props) {
                   )}
                 </TouchableOpacity>
                 {Platform.OS === 'ios' ? (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
+                  <TouchableOpacity activeOpacity={PRESS_OPACITY}
                     accessibilityRole="button"
                     onPress={() => { if (requireAcceptance() && apple.available) apple.prompt(); }}
                     style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent' }]}
@@ -202,8 +200,7 @@ export default function CreateAccountScreen({ navigation }: Props) {
             <View><Field label="Phone Number" value={form.phone} onChangeText={set('phone')} placeholder="Enter phone number" keyboardType="phone-pad" />{err('phone')}</View>
             <View><Field label="Password" value={form.password} onChangeText={set('password')} secure showToggle placeholder="At least 8 characters" />{err('password')}</View>
 
-            <TouchableOpacity
-              activeOpacity={0.75}
+            <TouchableOpacity activeOpacity={PRESS_OPACITY}
               onPress={() => { setAccepted((a) => !a); setErrors((x) => ({ ...x, legal: undefined })); }}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: accepted }}
@@ -233,7 +230,7 @@ export default function CreateAccountScreen({ navigation }: Props) {
 
         <View style={styles.switchRow}>
           <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: theme.muted }}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('SignIn')} accessibilityRole="link">
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('SignIn')} accessibilityRole="link">
             <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: theme.accent }}>Sign in</Text>
           </TouchableOpacity>
         </View>

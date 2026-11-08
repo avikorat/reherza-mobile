@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Animated, Easing, StyleSheet } from 'react-native';
 import { useTheme } from '../ThemeContext';
+import { ProgressBar } from './Bits';
 import { parseProgressPercent, parseProgressStage } from '../lib/format';
+import { useReduceMotion } from '../lib/motion';
 import { fonts } from '../theme';
 
 // The web's ParseProgressBar: an estimate anchored to parseStartedAt, so the
@@ -19,16 +21,38 @@ function useParseProgress(startedAt?: string | null): number {
   return pct;
 }
 
+// The brand-gradient fill with the web's shimmer sweeping across it, so a
+// slow parse still reads as working. Reduce Motion drops the sweep.
 function Bar({ pct, height }: { pct: number; height: number }) {
   const { theme } = useTheme();
+  const reduceMotion = useReduceMotion();
+  const [width, setWidth] = useState(0);
+  const sweep = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reduceMotion || !width) return;
+    const loop = Animated.loop(Animated.timing(sweep, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [reduceMotion, width, sweep]);
   return (
     <View
       accessibilityRole="progressbar"
       accessibilityLabel="Parsing your script"
       accessibilityValue={{ min: 0, max: 100, now: Math.round(pct) }}
-      style={{ flex: 1, height, borderRadius: height / 2, backgroundColor: theme.accentBg, overflow: 'hidden' }}
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      style={{ flex: 1 }}
     >
-      <View style={{ width: `${pct}%`, height: '100%', borderRadius: height / 2, backgroundColor: theme.accent }} />
+      <ProgressBar progress={pct / 100} height={height} track={theme.accentBg} />
+      {width && !reduceMotion ? (
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width: `${pct}%`, borderRadius: height / 2, overflow: 'hidden' }]}>
+          <Animated.View
+            style={{
+              width: 40, height: '100%', backgroundColor: 'rgba(255,255,255,0.35)',
+              transform: [{ translateX: sweep.interpolate({ inputRange: [0, 1], outputRange: [-40, width] }) }],
+            }}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }

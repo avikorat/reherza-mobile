@@ -11,7 +11,7 @@ import { Projects, Tts, Voices, playableLines } from '../api';
 import { cacheClip, leaveRehearsalAudioMode, playClip, stopPlayback } from '../lib/audio';
 import { buildPrepLines, estimateDuration } from '../lib/rehearsal';
 import { explainPermission, openSettingsForPermission } from '../lib/permissions';
-import { fonts, radii, palette, stageSurfaces, RED_DOT } from '../theme';
+import { fonts, radii, palette, stageSurfaces, RED_DOT, PRESS_OPACITY } from '../theme';
 import type { PlayableLine, Project, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Studio'>;
@@ -245,12 +245,12 @@ export default function StudioScreen({ navigation, route }: Props) {
           <Feather name="video-off" size={40} color={stageSurfaces.onDarkSubtle} />
           <Text style={styles.permTitle}>Enable your camera & mic to record a self-tape.</Text>
           <Text style={styles.permText}>Record yourself on camera while your AI scene partner reads the other roles live.</Text>
-          <TouchableOpacity onPress={() => void askForAccess()} style={styles.primary} accessibilityRole="button">
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => void askForAccess()} style={styles.primary} accessibilityRole="button">
             <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: palette.white }}>
               {(camPerm && !camPerm.canAskAgain) || (micPerm && !micPerm.canAskAgain) ? 'Open Settings' : 'Enable Camera & Mic'}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ minHeight: 44, justifyContent: 'center' }} accessibilityRole="button">
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.goBack()} style={{ minHeight: 44, justifyContent: 'center' }} accessibilityRole="button">
             <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: stageSurfaces.onDarkSubtle }}>Back to the script</Text>
           </TouchableOpacity>
         </View>
@@ -279,7 +279,7 @@ export default function StudioScreen({ navigation, route }: Props) {
 
       <SafeAreaView style={styles.chrome}>
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={close} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back to script" style={styles.chip}>
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={close} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back to script" style={styles.chip}>
             <Feather name="chevron-left" size={15} color={palette.white} />
             <Text style={styles.chipText}>Back to script</Text>
           </TouchableOpacity>
@@ -287,7 +287,7 @@ export default function StudioScreen({ navigation, route }: Props) {
             {recording ? (
               <View style={styles.chip}><View style={styles.recDot} /><Text style={styles.chipText}>REC {fmt(elapsed)}</Text></View>
             ) : null}
-            <TouchableOpacity onPress={() => setAidsOpen(true)} accessibilityRole="button" style={styles.chip}><Text style={styles.chipText}>⚙ Aids</Text></TouchableOpacity>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setAidsOpen(true)} accessibilityRole="button" style={styles.chip}><Text style={styles.chipText}>⚙ Aids</Text></TouchableOpacity>
           </View>
         </View>
 
@@ -319,17 +319,17 @@ export default function StudioScreen({ navigation, route }: Props) {
 
         {!showStage && countdown === null && phase !== 'idle' && phase !== 'done' ? (
           <View style={styles.controls}>
-            <TouchableOpacity onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} disabled={recording} accessibilityRole="button" style={[styles.side, recording && { opacity: 0.4 }]}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} disabled={recording} accessibilityRole="button" style={[styles.side, recording && { opacity: 0.4 }]}>
               <Text style={styles.chipText}>⟲ Flip</Text>
             </TouchableOpacity>
             {phase === 'paused' ? (
-              <TouchableOpacity onPress={resume} accessibilityRole="button" style={styles.primary}><Text style={styles.primaryText}>Resume</Text></TouchableOpacity>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={resume} accessibilityRole="button" style={styles.primary}><Text style={styles.primaryText}>Resume</Text></TouchableOpacity>
             ) : phase === 'user-turn' ? (
-              <TouchableOpacity onPress={nextLine} accessibilityRole="button" style={styles.primary}><Text style={styles.primaryText}>Next line</Text></TouchableOpacity>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={nextLine} accessibilityRole="button" style={styles.primary}><Text style={styles.primaryText}>Next line</Text></TouchableOpacity>
             ) : (
-              <TouchableOpacity onPress={pause} accessibilityRole="button" style={styles.side}><Text style={styles.chipText}>⏸ Pause</Text></TouchableOpacity>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={pause} accessibilityRole="button" style={styles.side}><Text style={styles.chipText}>⏸ Pause</Text></TouchableOpacity>
             )}
-            <TouchableOpacity onPress={stop} accessibilityRole="button" accessibilityLabel="Finish take" style={styles.recOuter}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={stop} accessibilityRole="button" accessibilityLabel="Finish take" style={styles.recOuter}>
               <View style={styles.recInner} />
             </TouchableOpacity>
           </View>
@@ -363,7 +363,7 @@ function Aid({ label, help, options, value, onPick }: { label: string; help: str
       <Text style={styles.aidsHelp}>{help}</Text>
       <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
         {options.map(([v, l]) => (
-          <TouchableOpacity key={v} onPress={() => onPick(v)} accessibilityRole="button" accessibilityState={{ selected: v === value }} style={[styles.aidOpt, v === value && { backgroundColor: palette.blue, borderColor: palette.blue }]}>
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} key={v} onPress={() => onPick(v)} accessibilityRole="button" accessibilityState={{ selected: v === value }} style={[styles.aidOpt, v === value && { backgroundColor: palette.blue, borderColor: palette.blue }]}>
             <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: palette.white }}>{l}</Text>
           </TouchableOpacity>
         ))}
@@ -377,7 +377,7 @@ const styles = StyleSheet.create({
   chrome: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 12 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 8 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.45)', minHeight: 36, paddingHorizontal: 13, borderRadius: 999 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.45)', minHeight: 44, paddingHorizontal: 13, borderRadius: 999 },
   chipText: { fontFamily: fonts.semibold, fontSize: 13, color: palette.white },
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: RED_DOT },
   stageTitle: { fontFamily: fonts.heavy, fontSize: 20, color: palette.white, textAlign: 'center' },
@@ -398,5 +398,5 @@ const styles = StyleSheet.create({
   aids: { backgroundColor: stageSurfaces.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '75%' },
   aidsTitle: { fontFamily: fonts.heavy, fontSize: 18, color: palette.white },
   aidsHelp: { fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, color: stageSurfaces.onDarkMuted, marginTop: 3 },
-  aidOpt: { minHeight: 34, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
+  aidOpt: { minHeight: 44, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
 });

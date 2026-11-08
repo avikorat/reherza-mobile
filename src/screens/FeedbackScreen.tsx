@@ -8,7 +8,7 @@ import OutlineButton from '../components/OutlineButton';
 import { useToast } from '../components/Toast';
 import { useTheme } from '../ThemeContext';
 import { Feedback } from '../api';
-import { fonts, radii, palette } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
 import type { FeedbackBody, FeedbackFeature, FeedbackUseAgain, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Feedback'>;
@@ -140,7 +140,7 @@ export default function FeedbackScreen({ navigation, route }: Props) {
             <Text style={[styles.label, { color: theme.text }]}>{section.rating}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               {[1, 2, 3, 4, 5].map((n) => (
-                <TouchableOpacity
+                <TouchableOpacity activeOpacity={PRESS_OPACITY}
                   key={n}
                   onPress={() => setForm((f) => ({ ...f, ratings: { ...f.ratings, [section.key]: n } }))}
                   accessibilityRole="button"
@@ -152,7 +152,7 @@ export default function FeedbackScreen({ navigation, route }: Props) {
                 </TouchableOpacity>
               ))}
               {rated ? (
-                <TouchableOpacity
+                <TouchableOpacity activeOpacity={PRESS_OPACITY}
                   onPress={() => setForm((f) => { const r = { ...f.ratings }; delete r[section.key]; return { ...f, ratings: r }; })}
                   accessibilityRole="button"
                   style={{ marginLeft: 8, minHeight: 40, justifyContent: 'center' }}
@@ -171,7 +171,7 @@ export default function FeedbackScreen({ navigation, route }: Props) {
                       {(['yes', 'no'] as const).map((v) => {
                         const on = form.followups?.[section.key]?.[q] === v;
                         return (
-                          <TouchableOpacity key={v} onPress={() => setFollowup(section.key, { [q]: on ? undefined : v })} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.chip, { backgroundColor: on ? theme.accent : theme.surface, borderColor: on ? theme.accent : theme.border }]}>
+                          <TouchableOpacity activeOpacity={PRESS_OPACITY} key={v} onPress={() => setFollowup(section.key, { [q]: on ? undefined : v })} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.chip, { backgroundColor: on ? theme.accent : theme.surface, borderColor: on ? theme.accent : theme.border }]}>
                             <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: on ? palette.white : theme.text }}>{v === 'yes' ? 'Yes' : 'No'}</Text>
                           </TouchableOpacity>
                         );
@@ -195,7 +195,7 @@ export default function FeedbackScreen({ navigation, route }: Props) {
               {USE_AGAIN.map((o) => {
                 const on = form.useAgain === o.id;
                 return (
-                  <TouchableOpacity key={o.id} onPress={() => setForm((f) => ({ ...f, useAgain: on ? undefined : o.id }))} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.chip, { backgroundColor: on ? theme.accent : theme.surface, borderColor: on ? theme.accent : theme.border }]}>
+                  <TouchableOpacity activeOpacity={PRESS_OPACITY} key={o.id} onPress={() => setForm((f) => ({ ...f, useAgain: on ? undefined : o.id }))} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.chip, { backgroundColor: on ? theme.accent : theme.surface, borderColor: on ? theme.accent : theme.border }]}>
                     <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: on ? palette.white : theme.muted }}>{o.label}</Text>
                   </TouchableOpacity>
                 );
@@ -206,7 +206,7 @@ export default function FeedbackScreen({ navigation, route }: Props) {
 
         {ready ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
-            <TouchableOpacity onPress={close} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 6 }}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={close} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 6 }}>
               <Text style={{ fontFamily: fonts.semibold, fontSize: 13.5, color: theme.muted }}>{source === 'prompt' ? 'Not now' : 'Cancel'}</Text>
             </TouchableOpacity>
             <View style={{ flex: 1 }} />
@@ -228,6 +228,6 @@ const styles = StyleSheet.create({
   meta: { fontFamily: fonts.semibold, fontSize: 11.5 },
   label: { fontFamily: fonts.semibold, fontSize: 14, lineHeight: 20 },
   star: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  chip: { paddingHorizontal: 16, minHeight: 38, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
+  chip: { paddingHorizontal: 16, minHeight: 44, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
   box: { borderWidth: 1, borderRadius: radii.field, padding: 12, fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
 });

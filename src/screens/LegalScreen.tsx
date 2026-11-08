@@ -51,6 +51,35 @@ function Reader({ doc, onBack }: { doc: LegalDocument; onBack: () => void }) {
   const [failed, setFailed] = useState(false);
   const url = `${WEB_URL}${doc.path}`;
 
+  // The site is a single-page app: its own back button and header links change
+  // the route with history.pushState, which never reaches
+  // onShouldStartLoadWithRequest — so without this, "back" rendered the web
+  // landing page inside the app. Swallow every in-page route change that leaves
+  // this document and hand it to native instead: going home closes the reader,
+  // anything else opens in the system browser.
+  const guard = `(function () {
+    var doc = ${JSON.stringify(doc.path)};
+    function leave(target) {
+      var u = new URL(String(target), location.href);
+      if (u.pathname === doc) return false;
+      window.ReactNativeWebView.postMessage(u.pathname === '/' ? 'close' : 'open:' + u.href);
+      return true;
+    }
+    ['pushState', 'replaceState'].forEach(function (m) {
+      var orig = history[m].bind(history);
+      history[m] = function (state, title, target) {
+        if (target != null && leave(target)) return;
+        return orig(state, title, target);
+      };
+    });
+    window.addEventListener('popstate', function () { leave(location.href); });
+  })(); true;`;
+
+  const onMessage = (data: string) => {
+    if (data === 'close') onBack();
+    else if (data.startsWith('open:')) Linking.openURL(data.slice(5)).catch(() => {});
+  };
+
   return (
     <Screen padded={false}>
       <View style={styles.header}>
@@ -100,6 +129,8 @@ function Reader({ doc, onBack }: { doc: LegalDocument; onBack: () => void }) {
           <WebView
             source={{ uri: url }}
             style={{ flex: 1, backgroundColor: theme.bg }}
+            injectedJavaScriptBeforeContentLoaded={guard}
+            onMessage={(e) => onMessage(e.nativeEvent.data)}
             onLoadEnd={() => setLoading(false)}
             onError={() => {
               setLoading(false);

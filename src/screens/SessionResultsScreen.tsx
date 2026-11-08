@@ -15,7 +15,7 @@ import { formatScriptTitle } from '../lib/format';
 import { useToast } from '../components/Toast';
 import { scoreFill, scoreLabel, scoreText } from '../lib/scoreColors';
 import { DELIVERY_PARAMS, paramLabel, wordDiff } from '../lib/rehearsal';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 import type { LineResult, RecordingClip, RootStackParamList, Session, SessionCoaching, UsageInfo } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SessionResults'>;
@@ -277,7 +277,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
             <Text style={[styles.body, { color: theme.muted, textAlign: 'center', marginTop: 8 }]}>How closely the feeling in your voice matched each line, and how clearly you articulated.</Text>
             {voice.notes.length ? (
               <View style={{ marginTop: 12 }}>
-                <Text style={{ fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 0.8, color: theme.muted, marginBottom: 6 }}>PRONUNCIATION TO WATCH</Text>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 11, letterSpacing: 0.8, color: theme.muted, marginBottom: 6 }}>PRONUNCIATION TO WATCH</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                   {voice.notes.map((n) => (
                     <Text key={n} style={{ fontFamily: fonts.medium, fontSize: 11.5, color: theme.warning, backgroundColor: theme.warningBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' }}>{n}</Text>
@@ -314,7 +314,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
 
         {lines.length ? (
           <View style={{ gap: 10 }}>
-            <TouchableOpacity onPress={() => setShowAll((v) => !v)} style={styles.rowBetween}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setShowAll((v) => !v)} style={styles.rowBetween}>
               <Text style={[styles.h2, { color: theme.text }]}>All lines ({lines.length})</Text>
               <Feather name={showAll ? 'chevron-up' : 'chevron-down'} size={18} color={theme.muted} />
             </TouchableOpacity>
@@ -493,7 +493,7 @@ function ScenePlayer({ theme, clips, title, onDelete }: { theme: T; clips: Recor
         <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.muted }}>{i + 1} / {clips.length}</Text>
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12 }}>
-        <TouchableOpacity onPress={() => void toggle()} style={[styles.playBtn, { backgroundColor: theme.accent }]} accessibilityLabel={playing ? 'Pause' : 'Play'}>
+        <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => void toggle()} style={[styles.playBtn, { backgroundColor: theme.accent }]} accessibilityLabel={playing ? 'Pause' : 'Play'}>
           <Feather name={playing ? 'pause' : 'play'} size={20} color="#fff" style={playing ? undefined : { marginLeft: 3 }} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
@@ -504,7 +504,7 @@ function ScenePlayer({ theme, clips, title, onDelete }: { theme: T; clips: Recor
       <View style={{ marginTop: 12, maxHeight: 200 }}>
         <ScrollView nestedScrollEnabled>
           {clips.map((c, n) => (
-            <TouchableOpacity key={`${c.lineIndex}-${n}`} onPress={() => void playAt(n)} style={[styles.clipRow, n === i && { backgroundColor: theme.accentBg }]}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} key={`${c.lineIndex}-${n}`} onPress={() => void playAt(n)} style={[styles.clipRow, n === i && { backgroundColor: theme.accentBg }]}>
               <Text style={{ fontFamily: fonts.bold, fontSize: 11, color: c.role === 'user' ? theme.tpYou : theme.tpPartner, width: 78 }} numberOfLines={1}>{clipTag(c)}</Text>
               <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.text, flex: 1 }} numberOfLines={1}>{c.text}</Text>
             </TouchableOpacity>
@@ -515,7 +515,7 @@ function ScenePlayer({ theme, clips, title, onDelete }: { theme: T; clips: Recor
         Saved recordings stay in your <Text style={{ fontFamily: fonts.semibold, color: theme.text }}>History</Text> until you delete them. Download to keep a copy on your device.
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-        <TouchableOpacity
+        <TouchableOpacity activeOpacity={PRESS_OPACITY}
           accessibilityRole="button"
           style={{ minHeight: 44, justifyContent: 'center' }}
           onPress={() => {
@@ -527,7 +527,7 @@ function ScenePlayer({ theme, clips, title, onDelete }: { theme: T; clips: Recor
         >
           <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.accent }}>📄 Download script</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onDelete} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }}>
+        <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={onDelete} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }}>
           <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.destructive }}>Delete recording</Text>
         </TouchableOpacity>
       </View>

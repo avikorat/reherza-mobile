@@ -17,6 +17,7 @@ import {
   brandGradientLocations,
   diagonalStart,
   diagonalEnd,
+  PRESS_OPACITY,
 } from '../theme';
 import type { CreditStatus, RootStackParamList, Subscription, UsageInfo } from '../types';
 
@@ -140,7 +141,7 @@ export default function BillingScreen({ navigation }: Props) {
         ) : null}
 
         {canCancel ? (
-          <TouchableOpacity onPress={cancel} accessibilityRole="button" style={{ alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={cancel} accessibilityRole="button" style={{ alignItems: 'center', minHeight: 44, justifyContent: 'center' }}>
             <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>Cancel subscription</Text>
           </TouchableOpacity>
         ) : null}
@@ -162,7 +163,7 @@ const styles = StyleSheet.create({
   },
   // Supporting copy on a gradient surface steps down in opacity rather than to
   // a grey that would fight the sweep (the web's `.grad-surface-sub`).
-  heroEyebrow: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 1.4, color: 'rgba(255,255,255,0.85)' },
+  heroEyebrow: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 1.4, color: 'rgba(255,255,255,0.85)' },
   heroPlan: { fontFamily: fonts.heavy, fontSize: 30, letterSpacing: -0.7, color: palette.white, marginTop: 4 },
   heroMeta: { fontFamily: fonts.regular, fontSize: 12, color: 'rgba(255,255,255,0.9)', marginTop: 16 },
 });

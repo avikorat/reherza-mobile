@@ -15,6 +15,7 @@ import {
   brandGradientLocations,
   diagonalStart,
   diagonalEnd,
+  PRESS_OPACITY,
 } from '../theme';
 import type { RootStackParamList } from '../types';
 
@@ -163,7 +164,7 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
               Resend in 0:{String(resendIn).padStart(2, '0')}
             </Text>
           ) : (
-            <TouchableOpacity onPress={() => void resend()}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => void resend()}>
               <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.accent }}>Resend code</Text>
             </TouchableOpacity>
           )}
@@ -173,7 +174,7 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
         </Text>
         <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 14 }}>
           <Text style={{ fontFamily: fonts.regular, fontSize: 13.5, color: theme.muted }}>Wrong email? </Text>
-          <TouchableOpacity onPress={() => navigation.goBack()} accessibilityRole="link">
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.goBack()} accessibilityRole="link">
             <Text style={{ fontFamily: fonts.semibold, fontSize: 13.5, color: theme.accent }}>Go back</Text>
           </TouchableOpacity>
         </View>

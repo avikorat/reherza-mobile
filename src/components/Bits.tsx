@@ -14,6 +14,7 @@ import {
   diagonalEnd,
   palette,
   RED_DOT,
+  PRESS_OPACITY,
 } from '../theme';
 
 // The Reherza wordmark — the web's `.app-logo`: a red "rec" dot with a glow,
@@ -72,9 +73,8 @@ export function Avatar({ initials, size = 40 }: { initials: string; size?: numbe
 export function BackButton({ onPress }: { onPress: () => void }) {
   const { theme } = useTheme();
   return (
-    <TouchableOpacity
+    <TouchableOpacity activeOpacity={PRESS_OPACITY}
       onPress={onPress}
-      activeOpacity={0.7}
       hitSlop={6}
       accessibilityRole="button"
       accessibilityLabel="Go back"
@@ -103,10 +103,9 @@ export function HeaderAction({
   const { theme } = useTheme();
   const fg = color || theme.accent;
   return (
-    <TouchableOpacity
+    <TouchableOpacity activeOpacity={PRESS_OPACITY}
       onPress={onPress}
       disabled={disabled}
-      activeOpacity={0.7}
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={label}

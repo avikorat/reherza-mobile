@@ -10,7 +10,7 @@ import { useTheme } from '../ThemeContext';
 import { History } from '../api';
 import AccountMenu from '../components/AccountMenu';
 import { formatScriptTitle } from '../lib/format';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 import type { HistoryResponse, HistoryScript, RootStackParamList, TabParamList } from '../types';
 
 type Props = CompositeScreenProps<
@@ -48,7 +48,7 @@ export default function HistoryScreen({ navigation }: Props) {
     const title = formatScriptTitle(s.title);
     return (
       <Card padding={0} style={{ overflow: 'hidden' }}>
-        <TouchableOpacity activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={`${title} history`} onPress={() => navigation.navigate('HistoryScript', { id: s.projectId })}>
+        <TouchableOpacity activeOpacity={PRESS_OPACITY} accessibilityRole="button" accessibilityLabel={`${title} history`} onPress={() => navigation.navigate('HistoryScript', { id: s.projectId })}>
           <View style={[styles.media, { backgroundColor: theme.accentBg }]}>
             {s.thumbnailUrl ? (
               <Image source={{ uri: s.thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
@@ -64,7 +64,7 @@ export default function HistoryScreen({ navigation }: Props) {
             Last recorded {new Date(s.lastActivityAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
           </Text>
           {s.projectExists ? (
-            <TouchableOpacity onPress={() => navigation.navigate('ScriptDetail', { id: s.projectId })} accessibilityRole="link" style={{ minHeight: 32, justifyContent: 'center' }}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ScriptDetail', { id: s.projectId })} accessibilityRole="link" style={{ minHeight: 32, justifyContent: 'center' }}>
               <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent }}>Open script →</Text>
             </TouchableOpacity>
           ) : null}

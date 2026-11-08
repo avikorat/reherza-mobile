@@ -21,11 +21,12 @@ import {
   playClip, putFile, startRecording, stopPlayback, stopRecording, type MicPermission, type RecordedAudio,
 } from '../lib/audio';
 import { askMicrophone, openSettingsForPermission } from '../lib/permissions';
+import { useReduceMotion } from '../lib/motion';
 import {
   buildSequence, clip, estimateDuration, expectedMs, feedEndpointer, findRedoStep, newEndpointer,
   sceneWindow, ttsContext, type Endpointer,
 } from '../lib/rehearsal';
-import { fonts, radii, palette, brandGradient, brandGradientLocations, gradientStart, gradientEnd } from '../theme';
+import { fonts, radii, palette, brandGradient, brandGradientLocations, gradientStart, gradientEnd, PRESS_OPACITY } from '../theme';
 import type { LineResult, PlayableLine, Project, RecordingClip, RootStackParamList, SessionFeedback, TranscriptResult, UsageInfo } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RehearsalRoom'>;
@@ -128,10 +129,12 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
 
   // Line-card entry animation (the web's fadeSlideUp, 0.3 s).
   const enter = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
   useEffect(() => {
+    if (reduceMotion) { enter.setValue(1); return; }
     enter.setValue(0);
     Animated.timing(enter, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [step, phase === 'idle', enter]);
+  }, [step, phase === 'idle', enter, reduceMotion]);
 
   // Keep the screen on from Start through the save.
   const awake = phase !== 'idle' || prep != null || countdown != null;
@@ -688,7 +691,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
             {chars.join(' & ')} · {isFocus ? `${seq.length} focus lines` : `${seq.length} lines`}
           </Text>
         </View>
-        <TouchableOpacity
+        <TouchableOpacity activeOpacity={PRESS_OPACITY}
           onPress={() => void handleEnd()}
           disabled={idle || phase === 'saving'}
           style={[styles.endBtn, { borderColor: theme.border, backgroundColor: theme.surface, opacity: idle ? 0 : 1 }]}
@@ -795,7 +798,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
               {manual ? (
                 <Text style={[styles.hint, { color: theme.warning }]}>Mic access is off, so auto-advance is off. Deliver your line, then tap Done Speaking.</Text>
               ) : null}
-              <TouchableOpacity onPress={() => void handleDone()} activeOpacity={0.9}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => void handleDone()}>
                 <LinearGradient colors={brandGradient} locations={brandGradientLocations} start={gradientStart} end={gradientEnd} style={styles.doneBtn}>
                   <PulseDot color={palette.white} />
                   <Text style={styles.doneLabel}>Done Speaking</Text>
@@ -806,7 +809,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
               </Text>
             </>
           ) : phase === 'paused' ? (
-            <TouchableOpacity onPress={handleResume} activeOpacity={0.9} style={[styles.resumeBtn, { backgroundColor: theme.text }]}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={handleResume} style={[styles.resumeBtn, { backgroundColor: theme.text }]}>
               <Feather name="play" size={16} color={theme.bg} />
               <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: theme.bg }}>Resume Scene</Text>
             </TouchableOpacity>
@@ -815,7 +818,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
               <Text style={[styles.hint, { color: theme.destructive }]}>{errorMsg}</Text>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <GradientButton small label="↺ Try again" style={{ flex: 1 }} onPress={() => void processStep(stepRef.current)} />
-                <TouchableOpacity
+                <TouchableOpacity activeOpacity={PRESS_OPACITY}
                   onPress={() => { played.current.add(seq[step]); void processStep(step + 1); }}
                   style={[styles.skipBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
                 >
@@ -942,14 +945,16 @@ function StatusPill({ theme, phase, speaker, listening }: { theme: T; phase: Pha
 
 function PulseDot({ color }: { color: string }) {
   const v = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
   useEffect(() => {
+    if (reduceMotion) { v.setValue(1); return; }
     const loop = Animated.loop(Animated.sequence([
       Animated.timing(v, { toValue: 0.3, duration: 700, useNativeDriver: true }),
       Animated.timing(v, { toValue: 1, duration: 700, useNativeDriver: true }),
     ]));
     loop.start();
     return () => loop.stop();
-  }, [v]);
+  }, [v, reduceMotion]);
   return <Animated.View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, opacity: v }} />;
 }
 
@@ -958,7 +963,7 @@ function Ctl({ theme, icon, label, show, disabled, ghost, onPress }: {
 }) {
   if (!show) return <View style={{ flex: 1 }} />;
   return (
-    <TouchableOpacity
+    <TouchableOpacity activeOpacity={PRESS_OPACITY}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
@@ -966,7 +971,7 @@ function Ctl({ theme, icon, label, show, disabled, ghost, onPress }: {
       style={[styles.ctl, { borderColor: ghost ? 'transparent' : theme.border, backgroundColor: ghost ? 'transparent' : theme.surface, opacity: disabled ? 0.3 : ghost ? 0.6 : 1 }]}
     >
       <Feather name={icon} size={15} color={theme.muted} />
-      <Text style={{ fontFamily: fonts.semibold, fontSize: 11, color: theme.muted }}>{label}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.2} style={{ flexShrink: 1, fontFamily: fonts.semibold, fontSize: 11, color: theme.muted }}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -994,7 +999,7 @@ const styles = StyleSheet.create({
   resumeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: radii.card, paddingVertical: 18 },
   skipBtn: { flex: 1, borderWidth: 1, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
   footer: { flexDirection: 'row', gap: 8, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 6, marginTop: 14, borderTopWidth: 1 },
-  ctl: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderWidth: 1, borderRadius: radii.pill },
+  ctl: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, height: 44, paddingHorizontal: 10, borderWidth: 1, borderRadius: radii.pill },
   overlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 24 },
   overlayCard: { alignSelf: 'stretch', borderRadius: radii.card, padding: 22, alignItems: 'center' },
   countdown: { fontFamily: fonts.heavy, fontSize: 112, color: palette.white, fontVariant: ['tabular-nums'] },

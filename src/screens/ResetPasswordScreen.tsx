@@ -9,7 +9,7 @@ import { useTheme } from '../ThemeContext';
 import { useToast } from '../components/Toast';
 import { Cognito, canonicalEmail } from '../lib/cognito';
 import { scoreFill } from '../lib/scoreColors';
-import { fonts } from '../theme';
+import { fonts, PRESS_OPACITY } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ResetPassword'>;
@@ -180,7 +180,7 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
               <GradientButton label="Reset password" onPress={() => void submitNewPassword()} />
             )}
 
-            <TouchableOpacity
+            <TouchableOpacity activeOpacity={PRESS_OPACITY}
               onPress={() => void requestCode()}
               style={{ alignSelf: 'center', marginTop: 16 }}
             >
@@ -190,7 +190,7 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           </>
         )}
-        <TouchableOpacity onPress={() => navigation.navigate('SignIn')} accessibilityRole="link" style={{ alignSelf: 'center', marginTop: 22, minHeight: 44, justifyContent: 'center' }}>
+        <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('SignIn')} accessibilityRole="link" style={{ alignSelf: 'center', marginTop: 22, minHeight: 44, justifyContent: 'center' }}>
           <Text style={{ fontFamily: fonts.medium, fontSize: 13.5, color: theme.muted }}>Back to sign in</Text>
         </TouchableOpacity>
       </ScrollView>

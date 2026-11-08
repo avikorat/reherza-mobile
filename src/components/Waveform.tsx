@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Animated, Easing, StyleSheet } from 'react-native';
+import { useReduceMotion } from '../lib/motion';
 
 // The web's `audioBar` keyframe: 3px → 18px → 3px, 0.8 s ease-in-out,
 // staggered 120 ms per bar. It is THE listening / speaking indicator — the
@@ -16,10 +17,12 @@ interface WaveformProps {
 
 export default function Waveform({ color, bars = 5, active = true, min = 3, max = 18, width = 3 }: WaveformProps) {
   const values = useRef(Array.from({ length: bars }, () => new Animated.Value(0))).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
-    if (!active) {
-      values.forEach((v) => v.setValue(0));
+    // Reduce Motion: hold the bars still at half height, so "live" still reads.
+    if (!active || reduceMotion) {
+      values.forEach((v) => v.setValue(active ? 0.5 : 0));
       return;
     }
     const loops = values.map((v, i) =>
@@ -33,7 +36,7 @@ export default function Waveform({ color, bars = 5, active = true, min = 3, max 
     );
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
-  }, [active, values]);
+  }, [active, values, reduceMotion]);
 
   return (
     <View style={[styles.row, { height: max, gap: width }]}>

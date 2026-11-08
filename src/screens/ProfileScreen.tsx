@@ -16,7 +16,7 @@ import { useAuth } from '../AuthContext';
 import { Auth, Feedback } from '../api';
 import { Cognito, CognitoError, cognitoConfigured } from '../lib/cognito';
 import { LEGAL_DOCUMENTS } from '../legal';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 import type { RootStackParamList, TabParamList } from '../types';
 
 type Props = CompositeScreenProps<
@@ -31,7 +31,7 @@ const initials = (name?: string) =>
 function Row({ label, value, onPress, last }: { label: string; value?: string; onPress?: () => void; last?: boolean }) {
   const { theme } = useTheme();
   return (
-    <TouchableOpacity activeOpacity={0.7} onPress={onPress} accessibilityRole="button" style={[styles.row, !last && { borderBottomWidth: 1, borderBottomColor: theme.divider }]}>
+    <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={onPress} accessibilityRole="button" style={[styles.row, !last && { borderBottomWidth: 1, borderBottomColor: theme.divider }]}>
       <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         {value ? <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: theme.muted }}>{value}</Text> : null}
@@ -150,7 +150,7 @@ export default function ProfileScreen({ navigation }: Props) {
             {pwError ? <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.destructive, marginTop: 8 }}>{pwError}</Text> : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginTop: 14 }}>
               <GradientButton small label={saving ? 'Saving…' : 'Update password'} disabled={saving} onPress={changePassword} />
-              <TouchableOpacity onPress={() => navigation.navigate('ResetPassword', { email: user?.email })} accessibilityRole="link" style={{ minHeight: 40, justifyContent: 'center' }}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ResetPassword', { email: user?.email })} accessibilityRole="link" style={{ minHeight: 40, justifyContent: 'center' }}>
                 <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>Forgot your current password?</Text>
               </TouchableOpacity>
             </View>
@@ -201,7 +201,7 @@ export default function ProfileScreen({ navigation }: Props) {
             />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
               <OutlineButton small label="Cancel" onPress={() => setDeleteOpen(false)} />
-              <TouchableOpacity
+              <TouchableOpacity activeOpacity={PRESS_OPACITY}
                 onPress={() => void deleteAccount()}
                 disabled={typed !== DELETE_WORD || deleting}
                 accessibilityRole="button"
@@ -229,5 +229,5 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   dialog: { width: '100%', maxWidth: 420, borderRadius: radii.card, borderWidth: 1, padding: 20 },
   confirmInput: { borderWidth: 1, borderRadius: radii.field, paddingHorizontal: 12, minHeight: 44, fontFamily: fonts.semibold, fontSize: 15, marginTop: 14 },
-  dangerBtn: { minHeight: 40, paddingHorizontal: 16, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
+  dangerBtn: { minHeight: 44, paddingHorizontal: 16, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
 });

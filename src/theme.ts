@@ -86,7 +86,7 @@ export const radii = {
   field: 8,
   tile: 10,     // --radius-lg
   cardSm: 12,
-  card: 18,     // --radius-xl — Card, the default surface
+  card: 16,     // rounded-2xl — Card, the default surface
   pill: 999,    // rounded-full — the Dashboard's primary CTAs
 } as const;
 
@@ -115,6 +115,11 @@ export const shadows = {
     elevation: 1,
   },
 } as const;
+
+// ── Press feedback ─────────────────────────────────────────────────────────
+// The web's `hover-elevate`: every control answers a press the same faint way.
+// Every TouchableOpacity uses this; `activeOpacity={1}` opts out on purpose.
+export const PRESS_OPACITY = 0.85;
 
 // The Reherza mark. Deliberately red rather than the blue UI palette: it reads
 // as a recording light, which is what the product does.

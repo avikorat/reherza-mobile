@@ -18,7 +18,7 @@ import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
 import { Dashboard, Feedback, Projects, Usage } from '../api';
 import { formatScriptTitle, isAllowanceFailure, spokenDialogueCount } from '../lib/format';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 import type { Project, RootStackParamList, TabParamList, UsageInfo } from '../types';
 
 type Props = CompositeScreenProps<
@@ -165,7 +165,7 @@ export default function HomeScreen({ navigation }: Props) {
         {error ? (
           <Card>
             <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.destructive }}>{error}</Text>
-            <TouchableOpacity onPress={load} style={{ marginTop: 8, minHeight: 32, justifyContent: 'center' }} accessibilityRole="button">
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={load} style={{ marginTop: 8, minHeight: 32, justifyContent: 'center' }} accessibilityRole="button">
               <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Try again</Text>
             </TouchableOpacity>
           </Card>
@@ -227,7 +227,7 @@ export default function HomeScreen({ navigation }: Props) {
                   const canReprocess = limitStopped && creditsAvailable;
                   return (
                     <View key={p.id} style={[{ paddingVertical: 12, gap: 10 }, i > 0 && { borderTopWidth: 1, borderTopColor: theme.divider }]}>
-                      <TouchableOpacity onPress={() => navigation.navigate('ScriptDetail', { id: p.id })} accessibilityRole="link">
+                      <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ScriptDetail', { id: p.id })} accessibilityRole="link">
                         <Text numberOfLines={1} style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.text }}>{formatScriptTitle(p.title)}</Text>
                         <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
                           {limitStopped
@@ -245,7 +245,7 @@ export default function HomeScreen({ navigation }: Props) {
                   );
                 })}
                 {needsAttention.length > shownAttention.length ? (
-                  <TouchableOpacity onPress={() => setShowAllAttention(true)} style={{ borderTopWidth: 1, borderTopColor: theme.divider, paddingTop: 10, alignItems: 'center' }} accessibilityRole="button">
+                  <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setShowAllAttention(true)} style={{ borderTopWidth: 1, borderTopColor: theme.divider, paddingTop: 10, alignItems: 'center' }} accessibilityRole="button">
                     <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent }}>Show {needsAttention.length - shownAttention.length} more</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -259,7 +259,7 @@ export default function HomeScreen({ navigation }: Props) {
               const title = formatScriptTitle(p.title);
               return (
                 <Card key={p.id} padding={18} style={{ gap: 10 }}>
-                  <TouchableOpacity
+                  <TouchableOpacity activeOpacity={PRESS_OPACITY}
                     onPress={() => remove(p)}
                     accessibilityRole="button"
                     accessibilityLabel={`Delete ${title}`}
@@ -268,7 +268,7 @@ export default function HomeScreen({ navigation }: Props) {
                   >
                     <Text style={{ fontSize: 18, lineHeight: 20, color: theme.muted }}>×</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => navigation.navigate('ScriptDetail', { id: p.id })} accessibilityRole="link" activeOpacity={0.8}>
+                  <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ScriptDetail', { id: p.id })} accessibilityRole="link">
                     <Text numberOfLines={2} style={{ fontFamily: fonts.bold, fontSize: 16, lineHeight: 21, color: theme.text, paddingRight: 28, marginBottom: 6 }}>{title}</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                       {processing ? (
@@ -294,7 +294,7 @@ export default function HomeScreen({ navigation }: Props) {
                   </TouchableOpacity>
                   {processing ? <MiniParseProgress startedAt={p.parseStartedAt} /> : null}
                   {!processing && (p.sessionCount ?? 0) > 0 ? (
-                    <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'History' })} accessibilityRole="link" style={{ alignSelf: 'flex-start', minHeight: 28, justifyContent: 'center' }}>
+                    <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('Main', { screen: 'History' })} accessibilityRole="link" style={{ alignSelf: 'flex-start', minHeight: 28, justifyContent: 'center' }}>
                       <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
                         {p.sessionCount} session{p.sessionCount !== 1 ? 's' : ''} · view history
                       </Text>
@@ -311,7 +311,7 @@ export default function HomeScreen({ navigation }: Props) {
           </>
         )}
 
-        <TouchableOpacity onPress={onboarding.reopen} accessibilityRole="button" style={{ alignSelf: 'center', minHeight: 44, justifyContent: 'center' }}>
+        <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={onboarding.reopen} accessibilityRole="button" style={{ alignSelf: 'center', minHeight: 44, justifyContent: 'center' }}>
           <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>How it works</Text>
         </TouchableOpacity>
       </ScrollView>

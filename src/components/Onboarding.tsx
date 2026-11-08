@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import GradientButton from './GradientButton';
 import { Logo } from './Bits';
 import { useTheme } from '../ThemeContext';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 
 // The web's first-run tutorial (components/Onboarding.tsx), same five steps and
 // copy. ponytail: Feather glyphs stand in for the web's hand-drawn step art.
@@ -52,7 +52,7 @@ export default function Onboarding({ open, onClose }: { open: boolean; onClose: 
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.backdrop}>
         <View {...swipe.panHandlers} accessibilityViewIsModal accessibilityLabel="Reherza tutorial" style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <TouchableOpacity onPress={() => { onClose(); setIndex(0); }} style={styles.skip} accessibilityRole="button">
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => { onClose(); setIndex(0); }} style={styles.skip} accessibilityRole="button">
             <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>Skip</Text>
           </TouchableOpacity>
           <View style={{ alignItems: 'center', paddingTop: 26 }}><Logo size={17} /></View>
@@ -66,13 +66,13 @@ export default function Onboarding({ open, onClose }: { open: boolean; onClose: 
           </View>
           <View style={styles.dots}>
             {STEPS.map((s, i) => (
-              <TouchableOpacity key={s.title} onPress={() => setIndex(i)} accessibilityRole="button" accessibilityLabel={`Go to step ${i + 1}`} hitSlop={8}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} key={s.title} onPress={() => setIndex(i)} accessibilityRole="button" accessibilityLabel={`Go to step ${i + 1}`} hitSlop={8}>
                 <View style={{ height: 8, width: i === index ? 24 : 8, borderRadius: 4, backgroundColor: i === index ? theme.accent : theme.borderStrong }} />
               </TouchableOpacity>
             ))}
           </View>
           <View style={styles.controls}>
-            <TouchableOpacity onPress={prev} disabled={index === 0} style={{ opacity: index === 0 ? 0 : 1, minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }} accessibilityRole="button">
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={prev} disabled={index === 0} style={{ opacity: index === 0 ? 0 : 1, minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }} accessibilityRole="button">
               <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: theme.muted }}>← Previous</Text>
             </TouchableOpacity>
             <GradientButton label={isLast ? 'Get Started' : 'Next'} onPress={next} style={{ minWidth: 130 }} />

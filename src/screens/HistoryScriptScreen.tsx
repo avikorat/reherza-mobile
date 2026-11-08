@@ -14,7 +14,7 @@ import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { History, SelfTapes, Sessions } from '../api';
 import { formatScriptTitle } from '../lib/format';
-import { fonts } from '../theme';
+import { fonts, PRESS_OPACITY } from '../theme';
 import type { HistoryDetail, HistoryEntry, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'HistoryScript'>;
@@ -137,7 +137,7 @@ export default function HistoryScriptScreen({ navigation, route }: Props) {
                   {data.rehearsalCount} rehearsal{data.rehearsalCount === 1 ? '' : 's'}  ·  {data.selftapeCount} self-tape{data.selftapeCount === 1 ? '' : 's'}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => navigation.navigate('ScriptDetail', { id: projectId })} accessibilityRole="link" style={{ minHeight: 36, justifyContent: 'center' }}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ScriptDetail', { id: projectId })} accessibilityRole="link" style={{ minHeight: 36, justifyContent: 'center' }}>
                 <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent }}>Open script →</Text>
               </TouchableOpacity>
             </View>
@@ -160,7 +160,7 @@ export default function HistoryScriptScreen({ navigation, route }: Props) {
                       ) : (
                         <>
                           <Text style={{ fontFamily: fonts.heavy, fontSize: 16, color: e.confidenceScore != null ? theme.accent : theme.muted }}>{e.confidenceScore ?? '—'}</Text>
-                          <Text style={{ fontFamily: fonts.semibold, fontSize: 9, letterSpacing: 0.6, color: theme.muted }}>SCORE</Text>
+                          <Text style={{ fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.6, color: theme.muted }}>SCORE</Text>
                         </>
                       )}
                     </View>
@@ -175,22 +175,22 @@ export default function HistoryScriptScreen({ navigation, route }: Props) {
                     {tape ? (
                       <>
                         {!url ? (
-                          <TouchableOpacity onPress={() => void play(e)} disabled={busy} accessibilityRole="button" style={styles.action}>
+                          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => void play(e)} disabled={busy} accessibilityRole="button" style={styles.action}>
                             <Text style={[styles.actionText, { color: theme.accent }]}>{busy ? 'Loading…' : '▶ Play'}</Text>
                           </TouchableOpacity>
                         ) : null}
-                        <TouchableOpacity onPress={() => void download(e)} disabled={busy} accessibilityRole="button" accessibilityLabel="Download this self-tape" style={styles.action}>
+                        <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => void download(e)} disabled={busy} accessibilityRole="button" accessibilityLabel="Download this self-tape" style={styles.action}>
                           <Text style={[styles.actionText, { color: theme.accent }]}>⬇ Download</Text>
                         </TouchableOpacity>
                       </>
                     ) : (
-                      <TouchableOpacity onPress={() => navigation.navigate('SessionResults', { projectId: e.projectId, sessionId: e.id })} accessibilityRole="button" style={styles.action}>
+                      <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('SessionResults', { projectId: e.projectId, sessionId: e.id })} accessibilityRole="button" style={styles.action}>
                         <Text style={[styles.actionText, { color: theme.accent }]}>{e.hasRecording ? '▶ Open' : 'View results'}</Text>
                       </TouchableOpacity>
                     )}
                     {/* A rehearsal with no audio left has nothing to delete. */}
                     {tape || e.hasRecording ? (
-                      <TouchableOpacity onPress={() => confirmDelete(e)} accessibilityRole="button" accessibilityLabel={tape ? 'Delete this self-tape' : 'Delete this recording'} style={styles.action}>
+                      <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => confirmDelete(e)} accessibilityRole="button" accessibilityLabel={tape ? 'Delete this self-tape' : 'Delete this recording'} style={styles.action}>
                         <Feather name="trash-2" size={16} color={theme.muted} />
                       </TouchableOpacity>
                     ) : null}

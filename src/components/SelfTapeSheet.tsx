@@ -7,7 +7,7 @@ import { useTheme } from '../ThemeContext';
 import { Projects, Tts, Voices } from '../api';
 import { buildPrepLines } from '../lib/rehearsal';
 import { isSpokenDialogue } from '../lib/format';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 
 const COUNTDOWNS = [
   { value: 0, label: 'Off' },
@@ -97,7 +97,7 @@ export default function SelfTapeSheet({
           {COUNTDOWNS.map((c) => {
             const on = c.value === countdown;
             return (
-              <TouchableOpacity
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} hitSlop={5}
                 key={c.value}
                 onPress={() => setCountdown(c.value)}
                 accessibilityRole="button"

@@ -17,7 +17,7 @@ import { useTheme } from '../ThemeContext';
 import { ApiError, Projects, Tts, Usage, Voices } from '../api';
 import { playBase64 } from '../lib/audio';
 import { creditsLabel, formatScriptTitle, isAllowanceFailure, isSpokenDialogue } from '../lib/format';
-import { fonts, radii, palette } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
 import type { ParsedLine, Project, RootStackParamList, UsageInfo, Voice, VoiceAssignment } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptDetail'>;
@@ -353,7 +353,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
               {speakers.map((s) => {
                 const on = roles.includes(s);
                 return (
-                  <TouchableOpacity
+                  <TouchableOpacity activeOpacity={PRESS_OPACITY}
                     key={s}
                     onPress={() => toggleRole(s)}
                     accessibilityRole="button"
@@ -377,7 +377,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
           <Card padding={18}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Step n={2} label="Assign voices" />
-              <TouchableOpacity onPress={testVoice} disabled={testing || overLimit} accessibilityRole="button" style={[styles.smallBtn, { borderColor: theme.accentRing, opacity: overLimit ? 0.5 : 1 }]}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={testVoice} disabled={testing || overLimit} accessibilityRole="button" style={[styles.smallBtn, { borderColor: theme.accentRing, opacity: overLimit ? 0.5 : 1 }]}>
                 <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.accent }}>{testing ? 'Playing…' : '🔊 Test Voice'}</Text>
               </TouchableOpacity>
             </View>
@@ -393,12 +393,12 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <Text style={{ fontFamily: fonts.semibold, fontSize: 13.5, color: theme.text }}>{s}</Text>
                       {a ? (
-                        <TouchableOpacity onPress={() => preview(a.voiceId)} disabled={!!previewing || overLimit} accessibilityRole="button" style={{ minHeight: 32, justifyContent: 'center', opacity: overLimit ? 0.5 : 1 }}>
+                        <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => preview(a.voiceId)} disabled={!!previewing || overLimit} accessibilityRole="button" style={{ minHeight: 32, justifyContent: 'center', opacity: overLimit ? 0.5 : 1 }}>
                           <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.accent }}>{previewing === a.voiceId ? 'Playing…' : '▶ Preview'}</Text>
                         </TouchableOpacity>
                       ) : null}
                     </View>
-                    <TouchableOpacity onPress={() => setPicking(s)} accessibilityRole="button" accessibilityLabel={`Voice for ${s}`} style={[styles.select, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+                    <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setPicking(s)} accessibilityRole="button" accessibilityLabel={`Voice for ${s}`} style={[styles.select, { borderColor: theme.border, backgroundColor: theme.surface }]}>
                       <Text numberOfLines={1} style={{ flex: 1, fontFamily: fonts.regular, fontSize: 14, color: a ? theme.text : theme.muted }}>
                         {a ? (v ? `${v.name} · ${v.gender ?? ''} / ${v.accent ?? ''}` : a.voiceName) : 'Choose a voice…'}
                       </Text>
@@ -425,14 +425,14 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                 <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>{lines.length} lines total</Text>
               </View>
               {!isLibrary ? (
-                <TouchableOpacity onPress={() => navigation.navigate('ScriptEditor', { id: projectId })} accessibilityRole="button" style={{ minHeight: 36, justifyContent: 'center' }}>
+                <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ScriptEditor', { id: projectId })} accessibilityRole="button" style={{ minHeight: 36, justifyContent: 'center' }}>
                   <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.accent }}>✎ Edit lines</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
             {!isLibrary ? (
               <View style={[styles.selectBar, { borderBottomColor: theme.border }]}>
-                <TouchableOpacity
+                <TouchableOpacity activeOpacity={PRESS_OPACITY}
                   onPress={() => setSelected(allSelected ? new Set() : new Set(lines.map((l) => l.lineIndex)))}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: allSelected }}
@@ -444,7 +444,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                 {selected.size > 0 ? (
                   <>
                     <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.text }}>{selected.size} selected</Text>
-                    <TouchableOpacity onPress={() => void confirmDelete([...selected])} disabled={deleting} accessibilityRole="button" style={[styles.delBtn, { backgroundColor: theme.destructive }]}>
+                    <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => void confirmDelete([...selected])} disabled={deleting} accessibilityRole="button" style={[styles.delBtn, { backgroundColor: theme.destructive }]}>
                       <Feather name="trash-2" size={13} color={palette.white} />
                       <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: palette.white }}>{deleting ? 'Deleting…' : `Delete Selected (${selected.size})`}</Text>
                     </TouchableOpacity>
@@ -458,7 +458,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
               return (
                 <View key={l.lineIndex} style={[styles.line, { backgroundColor: on ? theme.accentBg : i % 2 ? theme.surfaceAlt : 'transparent' }]}>
                   {!isLibrary ? (
-                    <TouchableOpacity
+                    <TouchableOpacity activeOpacity={PRESS_OPACITY} hitSlop={4}
                       onPress={() => setSelected((p) => { const n = new Set(p); if (n.has(l.lineIndex)) n.delete(l.lineIndex); else n.add(l.lineIndex); return n; })}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: on }}
@@ -474,7 +474,7 @@ export default function ScriptDetailScreen({ navigation, route }: Props) {
                   </Text>
                   <Text style={{ flex: 1, fontFamily: mine ? fonts.medium : fonts.regular, fontSize: 13.5, lineHeight: 19, color: theme.text, opacity: mine ? 1 : 0.85 }}>{l.text}</Text>
                   {!isLibrary ? (
-                    <TouchableOpacity onPress={() => void confirmDelete([l.lineIndex])} disabled={deleting} accessibilityRole="button" accessibilityLabel="Delete line" style={styles.boxHit}>
+                    <TouchableOpacity activeOpacity={PRESS_OPACITY} hitSlop={4} onPress={() => void confirmDelete([l.lineIndex])} disabled={deleting} accessibilityRole="button" accessibilityLabel="Delete line" style={styles.boxHit}>
                       <Feather name="trash-2" size={15} color={theme.muted} />
                     </TouchableOpacity>
                   ) : null}
@@ -521,13 +521,13 @@ const styles = StyleSheet.create({
   bannerIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   waitIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   stepNum: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  roleChip: { paddingHorizontal: 16, minHeight: 38, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
-  smallBtn: { borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: 12, minHeight: 34, justifyContent: 'center' },
+  roleChip: { paddingHorizontal: 16, minHeight: 44, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
+  smallBtn: { borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
   select: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: radii.field, paddingHorizontal: 12, minHeight: 44 },
   hint: { fontFamily: fonts.regular, fontSize: 12, textAlign: 'center' },
   dialogueHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
   selectBar: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 12, paddingHorizontal: 16, paddingVertical: 4, borderBottomWidth: 1 },
-  delBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radii.pill, paddingHorizontal: 12, minHeight: 32 },
+  delBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radii.pill, paddingHorizontal: 12, minHeight: 44 },
   line: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 8, paddingVertical: 8 },
   boxHit: { width: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
 });

@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useRef, useState, type R
 import { Animated, Text, StyleSheet, AccessibilityInfo } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeContext';
-import { fonts, radii } from '../theme';
+import { fonts, radii, palette } from '../theme';
 
 // The web's toast: a short, non-blocking confirmation. Use it where the web
 // toasts; keep Alert for questions that need an answer.
@@ -44,9 +44,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             { top: insets.top + 8, opacity, backgroundColor: bad ? theme.destructive : theme.surface, borderColor: bad ? theme.destructive : theme.border, shadowColor: theme.shadow },
           ]}
         >
-          <Text style={{ fontFamily: fonts.bold, fontSize: 13.5, color: bad ? '#fff' : theme.text }}>{current.title}</Text>
+          <Text style={{ fontFamily: fonts.bold, fontSize: 13.5, color: bad ? palette.white : theme.text }}>{current.title}</Text>
           {current.description ? (
-            <Text style={{ fontFamily: fonts.regular, fontSize: 12.5, marginTop: 2, color: bad ? '#fff' : theme.muted }}>{current.description}</Text>
+            <Text style={{ fontFamily: fonts.regular, fontSize: 12.5, marginTop: 2, color: bad ? palette.white : theme.muted }}>{current.description}</Text>
           ) : null}
         </Animated.View>
       ) : null}

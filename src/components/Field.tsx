@@ -10,7 +10,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useTheme } from '../ThemeContext';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 
 interface FieldProps {
   label?: string;
@@ -71,7 +71,7 @@ export default function Field({
           accessibilityLabel={label || placeholder}
         />
         {showToggle ? (
-          <TouchableOpacity
+          <TouchableOpacity activeOpacity={PRESS_OPACITY}
             onPress={() => setHide((h) => !h)}
             accessibilityRole="button"
             accessibilityLabel={hide ? 'Show password' : 'Hide password'}

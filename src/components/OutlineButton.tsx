@@ -2,7 +2,7 @@ import React from 'react';
 import { Text, StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 
 interface OutlineButtonProps {
   label: string;
@@ -39,8 +39,7 @@ export default function OutlineButton({
   const color = secondary ? theme.accent2 : danger ? theme.destructive : theme.text;
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.85}
+    <TouchableOpacity activeOpacity={PRESS_OPACITY}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}

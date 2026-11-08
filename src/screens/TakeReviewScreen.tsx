@@ -12,7 +12,7 @@ import OutlineButton from '../components/OutlineButton';
 import { useTheme } from '../ThemeContext';
 import { Storage, SelfTapes, ApiError } from '../api';
 import { useToast } from '../components/Toast';
-import { fonts, radii, palette, stageSurfaces } from '../theme';
+import { fonts, radii, palette, stageSurfaces, PRESS_OPACITY } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TakeReview'>;
@@ -121,10 +121,9 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
         {uri ? (
           <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
         ) : null}
-        <TouchableOpacity
+        <TouchableOpacity activeOpacity={PRESS_OPACITY}
           onPress={() => void togglePlay()}
           style={styles.playBtn}
-          activeOpacity={0.8}
           accessibilityRole="button"
           accessibilityLabel={playing ? 'Pause' : 'Play'}
         >

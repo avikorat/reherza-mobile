@@ -13,7 +13,7 @@ import { useAuth } from '../AuthContext';
 import { useSocialAuth } from '../lib/socialAuth';
 import { ApiError } from '../api';
 import { CognitoError } from '../lib/cognito';
-import { fonts, radii } from '../theme';
+import { fonts, radii, PRESS_OPACITY } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignIn'>;
@@ -95,8 +95,7 @@ export default function SignInScreen({ navigation }: Props) {
         <Card padding={22} style={{ gap: 14 }}>
           {showSocial ? (
             <>
-              <TouchableOpacity
-                activeOpacity={0.85}
+              <TouchableOpacity activeOpacity={PRESS_OPACITY}
                 accessibilityRole="button"
                 onPress={() => (google.available ? google.prompt() : setError(UNCONFIGURED_MESSAGE))}
                 style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
@@ -109,8 +108,7 @@ export default function SignInScreen({ navigation }: Props) {
                 )}
               </TouchableOpacity>
               {Platform.OS === 'ios' ? (
-                <TouchableOpacity
-                  activeOpacity={0.85}
+                <TouchableOpacity activeOpacity={PRESS_OPACITY}
                   accessibilityRole="button"
                   onPress={() => (apple.available ? apple.prompt() : setError(UNCONFIGURED_MESSAGE))}
                   style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent' }]}
@@ -131,7 +129,7 @@ export default function SignInScreen({ navigation }: Props) {
           <Field label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
           <View>
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -22, zIndex: 1 }}>
-              <TouchableOpacity onPress={() => navigation.navigate('ResetPassword', { email })} accessibilityRole="link" hitSlop={8}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ResetPassword', { email })} accessibilityRole="link" hitSlop={8}>
                 <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: theme.muted }}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
@@ -145,7 +143,7 @@ export default function SignInScreen({ navigation }: Props) {
 
         <View style={styles.switchRow}>
           <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: theme.muted }}>No account? </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('CreateAccount')} accessibilityRole="link">
+          <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('CreateAccount')} accessibilityRole="link">
             <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: theme.accent }}>Sign up</Text>
           </TouchableOpacity>
         </View>

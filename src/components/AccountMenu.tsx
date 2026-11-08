@@ -8,7 +8,7 @@ import Onboarding from './Onboarding';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
 import { Feedback } from '../api';
-import { fonts } from '../theme';
+import { fonts, palette, PRESS_OPACITY } from '../theme';
 import type { RootStackParamList } from '../types';
 
 const initials = (name?: string) =>
@@ -77,7 +77,7 @@ export default function AccountMenu() {
 
   return (
     <>
-      <TouchableOpacity
+      <TouchableOpacity activeOpacity={PRESS_OPACITY}
         onPress={() => setOpen(true)}
         accessibilityRole="button"
         accessibilityLabel="Account menu"
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(15,23,42,0.42)' },
   sheet: {
     position: 'absolute', left: 0, right: 0, bottom: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22,
-    paddingTop: 8, shadowColor: '#0F172A', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: -6 }, elevation: 16,
+    paddingTop: 8, shadowColor: palette.slate900, shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: -6 }, elevation: 16,
   },
   grabber: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, marginBottom: 10, opacity: 0.6 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22, paddingTop: 6, paddingBottom: 16 },

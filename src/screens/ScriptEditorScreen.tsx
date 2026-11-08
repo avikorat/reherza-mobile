@@ -12,7 +12,7 @@ import { BackButton, HeaderAction } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { ApiError, Projects } from '../api';
 import { creditsLabel, formatScriptTitle, spokenDialogueCount } from '../lib/format';
-import { fonts, radii, palette } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
 import type { ParsedLine, Project, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptEditor'>;
@@ -312,7 +312,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
   }
 
   const link = (label: string, onPress: () => void, disabled = false) => (
-    <TouchableOpacity onPress={onPress} disabled={disabled} accessibilityRole="button" style={{ minHeight: 32, justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}>
+    <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={onPress} disabled={disabled} accessibilityRole="button" style={{ minHeight: 32, justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}>
       <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.accent }}>{label}</Text>
     </TouchableOpacity>
   );
@@ -380,7 +380,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
                   {([['auto', 'Auto'], ['user', 'Me'], ['ai', 'AI']] as const).map(([k, label]) => {
                     const on = k === 'auto' ? !line.role : line.role === k;
                     return (
-                      <TouchableOpacity key={k} onPress={() => update(line.clientId, { role: k === 'auto' ? undefined : k })} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.segItem, on && { backgroundColor: theme.surface }]}>
+                      <TouchableOpacity activeOpacity={PRESS_OPACITY} hitSlop={7} key={k} onPress={() => update(line.clientId, { role: k === 'auto' ? undefined : k })} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.segItem, on && { backgroundColor: theme.surface }]}>
                         <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: on ? theme.text : theme.muted }}>{label}</Text>
                       </TouchableOpacity>
                     );
@@ -423,7 +423,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
               {line.showPerformance ? (
                 <View style={{ marginTop: 10, gap: 8 }}>
                   {fieldLabel('PERFORMANCE')}
-                  <TouchableOpacity onPress={() => setEmotionFor(line.clientId)} accessibilityRole="button" style={[styles.input, { borderColor: theme.border, backgroundColor: theme.bg, justifyContent: 'center' }]}>
+                  <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setEmotionFor(line.clientId)} accessibilityRole="button" style={[styles.input, { borderColor: theme.border, backgroundColor: theme.bg, justifyContent: 'center' }]}>
                     <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: line.emotion ? theme.text : theme.muted }}>
                       {line.emotion ? (EMOTIONS.includes(line.emotion) ? cap(line.emotion) : `Legacy: ${line.emotion}`) : 'Select emotion'}
                     </Text>
@@ -473,7 +473,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
           </View>
         ) : null}
 
-        <TouchableOpacity onPress={() => mutate((d) => { d.push(newLine(filter)); return d; })} accessibilityRole="button" style={[styles.addLine, { borderColor: theme.borderStrong }]}>
+        <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => mutate((d) => { d.push(newLine(filter)); return d; })} accessibilityRole="button" style={[styles.addLine, { borderColor: theme.borderStrong }]}>
           <Text style={{ fontFamily: fonts.semibold, fontSize: 13.5, color: theme.muted }}>+ Add a line{filter ? ` for ${filter}` : ''}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -499,7 +499,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
 function Chip({ on, label, count, onPress, muted }: { on: boolean; label: string; count: number | string; onPress: () => void; muted?: boolean }) {
   const { theme } = useTheme();
   return (
-    <TouchableOpacity onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.chip, { backgroundColor: on ? theme.accent : muted ? theme.surfaceAlt : theme.surface, borderColor: on ? theme.accent : theme.border }]}>
+    <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }} style={[styles.chip, { backgroundColor: on ? theme.accent : muted ? theme.surfaceAlt : theme.surface, borderColor: on ? theme.accent : theme.border }]}>
       <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: on ? palette.white : muted ? theme.muted : theme.text }}>
         {label} <Text style={{ opacity: 0.6 }}>{count}</Text>
       </Text>
@@ -510,7 +510,7 @@ function Chip({ on, label, count, onPress, muted }: { on: boolean; label: string
 function IconBtn({ label, a11y, onPress, disabled }: { label: string; a11y: string; onPress: () => void; disabled?: boolean }) {
   const { theme } = useTheme();
   return (
-    <TouchableOpacity onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} style={[styles.iconBtn, { borderColor: theme.border, opacity: disabled ? 0.3 : 1 }]}>
+    <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={a11y} hitSlop={6} style={[styles.iconBtn, { borderColor: theme.border, opacity: disabled ? 0.3 : 1 }]}>
       <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.muted }}>{label}</Text>
     </TouchableOpacity>
   );
@@ -521,13 +521,13 @@ const styles = StyleSheet.create({
   legend: { borderRadius: 10, padding: 12, marginTop: 10, gap: 3 },
   legendText: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 17 },
   card: { borderWidth: 1, borderRadius: radii.card, padding: 14 },
-  fieldLabel: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 0.8, marginBottom: 4 },
+  fieldLabel: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 0.8, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, minHeight: 40, fontFamily: fonts.regular, fontSize: 14 },
   help: { fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, marginTop: 4 },
   seg: { flexDirection: 'row', borderRadius: 8, padding: 2 },
   segItem: { paddingHorizontal: 12, minHeight: 30, justifyContent: 'center', borderRadius: 6 },
   iconBtn: { width: 30, height: 30, borderRadius: 7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  chip: { paddingHorizontal: 12, minHeight: 32, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
+  chip: { paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
   addLine: { borderWidth: 2, borderStyle: 'dashed', borderRadius: radii.card, minHeight: 52, alignItems: 'center', justifyContent: 'center' },
   saveBar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1 },
 });

@@ -9,6 +9,7 @@ import {
   fonts,
   radii,
   palette,
+  PRESS_OPACITY,
 } from '../theme';
 
 interface GradientButtonProps {
@@ -32,8 +33,7 @@ export default function GradientButton({
   disabled,
 }: GradientButtonProps) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.9}
+    <TouchableOpacity activeOpacity={PRESS_OPACITY}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
