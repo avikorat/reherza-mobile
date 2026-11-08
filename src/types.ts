@@ -9,6 +9,8 @@ export interface User {
   email: string;
   role: string;
   createdAt: string;
+  /** Billing handled by an operator (testing cohort): no self-serve upgrade paths. */
+  billingLocked?: boolean;
 }
 
 export interface ParsedLine {
@@ -46,6 +48,11 @@ export interface Project {
   parsedAt?: string | null;
   parseStatus: ParseStatus;
   parseError?: string | null;
+  /** e.g. AI_CREDITS_EXHAUSTED — see lib/format isAllowanceFailure. */
+  parseErrorCode?: string | null;
+  parseStartedAt?: string | null;
+  /** 'library' = a Reherza Library scene: free to rehearse, read-only lines. */
+  origin?: 'user' | 'library';
   sessionCount?: number;
   lastSessionAt?: string | null;
   createdAt: string;
@@ -226,6 +233,11 @@ export interface UsageInfo {
   isMasterAdmin: boolean;
   charsExceeded?: boolean;
   creditsRemainingMilli?: number;
+  // Credits are the unit the user reads; never derive them from the char fields.
+  creditsUsedMilli?: number;
+  creditLimitMilli?: number;
+  purchasedMilli?: number;
+  creditsExhausted?: boolean;
 }
 
 export interface Plan {
@@ -287,6 +299,8 @@ export interface FeedbackEligibility {
 
 export interface FeedbackBody {
   ratings: Partial<Record<FeedbackFeature, number>>;
+  /** Per-section follow-ups: two Yes/No answers and an optional comment. */
+  followups?: Partial<Record<FeedbackFeature, { q1?: 'yes' | 'no'; q2?: 'yes' | 'no'; comment?: string }>>;
   liked?: string;
   frustrations?: string;
   useAgain?: FeedbackUseAgain;
@@ -343,9 +357,9 @@ export interface UploadTicket {
 
 export type TabParamList = {
   Home: undefined;
-  Playhouse: undefined;
-  Rehearse: undefined;
-  Profile: undefined;
+  Library: undefined;
+  History: undefined;
+  Settings: undefined;
 };
 
 export type RootStackParamList = {
@@ -360,16 +374,17 @@ export type RootStackParamList = {
   Legal: { docId: string };
   Main: NavigatorScreenParams<TabParamList> | undefined;
   NewScript: undefined;
-  Parsing: { id: string };
   ScriptDetail: { id: string };
   ScriptEditor: { id: string };
   /** `focus` = original line indices of the weak lines to re-run (focus mode). */
   RehearsalRoom: { id: string; focus?: number[] };
   SessionResults: { projectId: string; sessionId: string };
-  Studio: { id?: string } | undefined;
+  /** `countdown` (seconds, 0 = off) comes from the Self tape sheet. */
+  Studio: { id?: string; countdown?: number } | undefined;
   TakeReview: { id?: string; uri: string; durationMs: number };
   Billing: undefined;
-  History: undefined;
+  /** The web's /history/:id — one script's rehearsals and self-tapes. */
+  HistoryScript: { id: string };
   /** `source: 'prompt'` when opened from the once-per-user prompt. */
   Feedback: { source?: 'prompt' | 'manual' } | undefined;
   Contact: undefined;

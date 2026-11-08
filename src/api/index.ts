@@ -80,7 +80,7 @@ export const Projects = {
       body: { title, filename, dataBase64, forceVision },
       timeout: 120000,
     }),
-  uploadLimits: () => api<{ maxPages: number; maxWords: number }>('/scripts/upload-limits'),
+  uploadLimits: () => api<{ maxPages: number; maxWords?: number; wordsPerPage?: number }>('/scripts/upload-limits'),
   /** Model-free: what importing this costs, and whether the user can afford it. */
   preflight: (body: { rawScript: string } | { filename: string; dataBase64: string }) =>
     api<{ requiredMilli: number; remainingMilli: number; pages?: number; allowed: boolean; reused?: boolean }>(

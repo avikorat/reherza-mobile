@@ -151,6 +151,8 @@ export interface Theme {
   warningFill: string;
   warningBg: string;
   destructive: string;
+  /** destructive/10 — the web's failed-state tint behind destructive text. */
+  destructiveBg: string;
 
   /** 0-100 delivery scores. Monotonic and contains no blue. */
   scoreExcellent: string;
@@ -198,6 +200,7 @@ const light: Theme = {
   warningFill: palette.amber,
   warningBg: 'rgba(245,158,11,0.10)',
   destructive: palette.red,
+  destructiveBg: 'rgba(220,38,38,0.10)',
 
   scoreExcellent: palette.greenText,
   scoreGood: palette.limeText,
@@ -242,6 +245,7 @@ const stage: Theme = {
   warningFill: palette.amber,
   warningBg: 'rgba(245,158,11,0.16)',
   destructive: '#F87171',
+  destructiveBg: 'rgba(248,113,113,0.14)',
 
   scoreExcellent: '#4ADE80',
   scoreGood: palette.lime,

@@ -62,10 +62,12 @@ export async function cacheClip(key: string, audioBase64: string, mimeType: stri
 
 let currentPlayer: AudioPlayer | null = null;
 
-/** Play a cached clip. Resolves when playback ends, or immediately if stopped. */
-export async function playClip(uri: string): Promise<void> {
+/** Play a cached clip. Resolves when playback ends, or immediately if stopped.
+ *  `whileRecording` keeps the session in record mode — the Studio plays the
+ *  partner while the camera records, and leaving record mode would cut its audio. */
+export async function playClip(uri: string, whileRecording = false): Promise<void> {
   await stopPlayback();
-  await setMode(false);
+  await setMode(whileRecording);
   const player = createAudioPlayer({ uri }, { updateInterval: 100 });
   currentPlayer = player;
   await new Promise<void>((resolve) => {

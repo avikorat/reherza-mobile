@@ -6,6 +6,7 @@ import Field from '../components/Field';
 import GradientButton from '../components/GradientButton';
 import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
+import { useToast } from '../components/Toast';
 import { Cognito, canonicalEmail } from '../lib/cognito';
 import { scoreFill } from '../lib/scoreColors';
 import { fonts } from '../theme';
@@ -25,6 +26,7 @@ type Step = 'request' | 'confirm';
 
 export default function ResetPasswordScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
+  const toast = useToast();
   const [step, setStep] = useState<Step>('request');
   const [email, setEmail] = useState(route.params?.email ?? '');
   const [code, setCode] = useState('');
@@ -52,7 +54,7 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
       setNotice(`We sent a code to ${destination || 'your email'}.`);
       setStep('confirm');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send a reset code.');
+      setError(e instanceof Error ? e.message : 'Failed to send reset code');
     } finally {
       setBusy(false);
     }
@@ -77,9 +79,10 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
       await Cognito.confirmForgotPassword(canonicalEmail(email), code.trim(), pw);
       // Straight back to Sign In with the address filled in — the new password
       // is not held anywhere, so signing in is a deliberate second step.
+      toast({ title: 'Password reset! Sign in with your new password.' });
       navigation.navigate('SignIn');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not reset your password.');
+      setError(e instanceof Error ? e.message : 'Could not reset password');
     } finally {
       setBusy(false);
     }
@@ -95,17 +98,17 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
       >
         <BackButton onPress={() => navigation.goBack()} />
 
-        <Text style={[styles.h1, { color: theme.text }]}>Reset your{'\n'}password.</Text>
+        <Text style={[styles.h1, { color: theme.text }]}>{step === 'request' ? 'Reset password' : 'Set new password'}</Text>
         <Text style={[styles.sub, { color: theme.muted }]}>
           {step === 'request'
-            ? "Tell us your email and we'll send a reset code."
-            : 'Enter the code we emailed you, then choose something new.'}
+            ? "We'll email you a code to reset your password."
+            : `Enter the code we sent to ${email || 'your email'}`}
         </Text>
 
         {step === 'request' ? (
           <>
             <Field
-              label="EMAIL"
+              label="Email"
               value={email}
               onChangeText={setEmail}
               placeholder="you@example.com"
@@ -128,24 +131,24 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
             ) : null}
 
             <Field
-              label="RESET CODE"
+              label="Verification Code"
               value={code}
               onChangeText={setCode}
-              placeholder="6-digit code"
+              placeholder="123456"
               keyboardType="number-pad"
               style={{ marginBottom: 18 }}
             />
             <Field
-              label="NEW PASSWORD"
+              label="New Password"
               value={pw}
               onChangeText={setPw}
               secure
               showToggle
-              placeholder="New password"
+              placeholder="At least 8 characters"
               style={{ marginBottom: 16 }}
             />
             <Field
-              label="CONFIRM PASSWORD"
+              label="Confirm Password"
               value={confirm}
               onChangeText={setConfirm}
               secure
@@ -174,7 +177,7 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
                 <ActivityIndicator color={theme.accent} />
               </View>
             ) : (
-              <GradientButton label="Update Password" onPress={() => void submitNewPassword()} />
+              <GradientButton label="Reset password" onPress={() => void submitNewPassword()} />
             )}
 
             <TouchableOpacity
@@ -187,6 +190,9 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           </>
         )}
+        <TouchableOpacity onPress={() => navigation.navigate('SignIn')} accessibilityRole="link" style={{ alignSelf: 'center', marginTop: 22, minHeight: 44, justifyContent: 'center' }}>
+          <Text style={{ fontFamily: fonts.medium, fontSize: 13.5, color: theme.muted }}>Back to sign in</Text>
+        </TouchableOpacity>
       </ScrollView>
     </Screen>
   );

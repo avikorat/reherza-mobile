@@ -59,7 +59,8 @@ const MESSAGES: Record<string, string> = {
   TooManyFailedAttemptsException: 'Too many failed attempts — wait a few minutes.',
 };
 
-async function call<T>(operation: string, body: Record<string, unknown>): Promise<T> {
+// `withClient: false` for the token-authenticated calls (ChangePassword), which take no ClientId.
+async function call<T>(operation: string, body: Record<string, unknown>, withClient = true): Promise<T> {
   if (!cognitoConfigured()) {
     throw new CognitoError(
       'NotConfigured',
@@ -75,7 +76,7 @@ async function call<T>(operation: string, body: Record<string, unknown>): Promis
         'Content-Type': 'application/x-amz-json-1.1',
         'X-Amz-Target': `${TARGET_PREFIX}.${operation}`,
       },
-      body: JSON.stringify({ ClientId: COGNITO_CLIENT_ID, ...body }),
+      body: JSON.stringify(withClient ? { ClientId: COGNITO_CLIENT_ID, ...body } : body),
     });
   } catch {
     throw new CognitoError('NetworkError', "Can't reach the sign-in service. Check your connection.");
@@ -114,17 +115,17 @@ export const Cognito = {
    * most pools require one, but a pool configured to auto-confirm returns
    * `userConfirmed: true` and the caller should skip straight to sign-in.
    *
-   * `phone_number` is deliberately not sent: the production pool marks no
-   * standard attribute as required, and this form doesn't collect one.
+   * `phone_number` is sent in E.164, as the web's form does.
    * `family_name` is omitted rather than sent empty — Cognito rejects an empty
    * string for a standard attribute even when it isn't required.
    */
-  signUp: async (email: string, password: string, firstName: string, lastName: string) => {
+  signUp: async (email: string, password: string, firstName: string, lastName: string, phone?: string) => {
     const attrs: Array<{ Name: string; Value: string }> = [
       { Name: 'email', Value: email },
       { Name: 'given_name', Value: firstName },
     ];
     if (lastName) attrs.push({ Name: 'family_name', Value: lastName });
+    if (phone) attrs.push({ Name: 'phone_number', Value: phone });
     const r = await call<CodeDelivery & { UserConfirmed?: boolean }>('SignUp', {
       Username: email,
       Password: password,
@@ -146,7 +147,7 @@ export const Cognito = {
 
   /** Email + password sign-in. Requires USER_PASSWORD_AUTH on the app client. */
   signIn: async (email: string, password: string) => {
-    const r = await call<{ AuthenticationResult?: { IdToken?: string } }>('InitiateAuth', {
+    const r = await call<{ AuthenticationResult?: { IdToken?: string; AccessToken?: string } }>('InitiateAuth', {
       AuthFlow: 'USER_PASSWORD_AUTH',
       AuthParameters: { USERNAME: email, PASSWORD: password },
     });
@@ -157,7 +158,13 @@ export const Cognito = {
       // this app can't complete rather than silently signing nobody in.
       throw new CognitoError('ChallengeRequired', 'This account needs extra verification to sign in.');
     }
-    return { idToken };
+    return { idToken, accessToken: r.AuthenticationResult?.AccessToken ?? '' };
+  },
+
+  /** Settings' "Change password": re-verifies the current password, then changes it. */
+  changePassword: async (email: string, previous: string, proposed: string) => {
+    const { accessToken } = await Cognito.signIn(email, previous);
+    await call<unknown>('ChangePassword', { AccessToken: accessToken, PreviousPassword: previous, ProposedPassword: proposed }, false);
   },
 
   forgotPassword: async (email: string) => {

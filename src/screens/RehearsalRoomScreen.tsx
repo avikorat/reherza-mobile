@@ -10,6 +10,7 @@ import Waveform from '../components/Waveform';
 import GradientButton from '../components/GradientButton';
 import { BackButton, ProgressBar } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
+import { useToast } from '../components/Toast';
 import { useAuth } from '../AuthContext';
 import {
   ApiError, Projects, Sessions, Speech, Storage, Tts, Usage, Voices, myCharacters, playableLines,
@@ -121,6 +122,8 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
   const setStepBoth = (s: number) => { stepRef.current = s; setStep(s); };
   const setMic = (p: MicPermission) => { micRef.current = p; setMicState(p); };
   const setRedo = (n: number) => { redoRef.current = n; setRedoCount(n); };
+  const showToast = useToast();
+  const limitShown = useRef(false);
   const toast = (text: string) => { setNotice(text); setTimeout(() => setNotice((n) => (n === text ? null : n)), 4500); };
 
   // Line-card entry animation (the web's fadeSlideUp, 0.3 s).
@@ -178,6 +181,11 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
         }
         setCreditsChecked(true);
       } catch (e) {
+        if (e instanceof ApiError && e.status === 404) {
+          showToast({ title: "That script doesn't exist", description: 'Taking you back to your dashboard.' });
+          navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+          return;
+        }
         Alert.alert('Could not open the room', e instanceof Error ? e.message : 'Unknown error', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
@@ -255,7 +263,10 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
           }
           if (!aliveRef.current) return;
           setPrep({ done: Math.round(((r.generated + r.cached) / Math.max(1, r.total)) * aiSteps.length), total: aiSteps.length });
-          if (r.withheld) toast(`${r.withheld} edited line${r.withheld === 1 ? '' : 's'} can't get a new voice while you're out of credits — it'll play as a silent read.`);
+          if (r.withheld) {
+            const n = r.withheld;
+            showToast({ title: "Some lines won't be voiced", description: `${n} edited ${n === 1 ? 'line' : 'lines'} can't get a new voice while you're out of credits. ${n === 1 ? 'It' : 'They'}'ll play as a silent read.` });
+          }
           if (r.ready) break;
           if (r.code !== 'preparation_in_progress') throw new ApiError(502, 'AI voices could not be prepared. Please try again.', r);
           if (r.generated + r.cached === 0) await sleep(750);
@@ -322,7 +333,11 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
     } catch (e) {
       if (epoch !== epochRef.current) return;
       if (e instanceof ApiError && e.status === 402) {
-        toast(e.message || 'Monthly usage limit reached — this line plays as a silent read.');
+        // Once per run, as on the web; the scene keeps going on cached audio.
+        if (!limitShown.current) {
+          limitShown.current = true;
+          showToast({ title: 'AI voice paused', description: e.message || 'Monthly usage limit reached.', variant: 'destructive' });
+        }
         ai = { uri: null, mimeType: '', mock: true, base64: '' };
       } else {
         setErrorMsg(e instanceof Error ? e.message : 'Voice generation failed. Please try again shortly.');
@@ -387,7 +402,10 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
           sessionId: sessionIdRef.current ?? undefined,
           lineIndex: idx,
           expected: linesRef.current[idx].text,
-        }).catch(() => null)
+        }).catch(() => {
+          showToast({ title: 'Transcription failed', description: "We couldn't transcribe that line, redo it to try again.", variant: 'destructive' });
+          return null;
+        })
       );
     }
   };
@@ -675,7 +693,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
           disabled={idle || phase === 'saving'}
           style={[styles.endBtn, { borderColor: theme.border, backgroundColor: theme.surface, opacity: idle ? 0 : 1 }]}
         >
-          <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.text }}>End</Text>
+          <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.text }}>End session</Text>
         </TouchableOpacity>
       </View>
 
@@ -746,7 +764,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
                     <View style={[styles.meterFill, { width: `${Math.round(level * 100)}%`, backgroundColor: theme.tpYou }]} />
                   </View>
                   <Text style={{ fontFamily: fonts.regular, fontStyle: 'italic', fontSize: 12, color: theme.muted }}>
-                    {manual ? 'Manual mode — speech isn’t being captured for this line.' : listening ? 'Recording — speak your line, then pause.' : 'Getting ready…'}
+                    {manual ? "Manual mode, speech isn't being captured for this line." : listening ? 'Recording, speak your line, then pause.' : 'Getting ready…'}
                   </Text>
                 </View>
               ) : null}

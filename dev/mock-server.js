@@ -188,6 +188,7 @@ http.createServer((req, res) => {
       return send(res, 200, [...projects.values()].reverse());
     if (path === '/scripts/import' && req.method === 'POST') {
       const p = buildProject('u', body.title || 'Untitled', parseLines(body.rawScript), 'processing');
+      p.parseStartedAt = new Date().toISOString(); p.origin = 'user';
       const lines = p.parsedLines; p.parsedLines = []; p.speakers = [];
       setTimeout(() => { p.parsedLines = lines; p.speakers = [...new Set(lines.map((l) => l.speaker))]; p.parseStatus = 'ready'; }, 4000);
       return send(res, 201, p);
@@ -262,7 +263,7 @@ http.createServer((req, res) => {
       const title = seg[1] === 'oswald-cab' ? 'The Cab Ride' : 'Table for One';
       const existing = [...projects.values()].find((p) => p.title === title);
       if (existing) return send(res, 200, { ...existing, reused: true });
-      return send(res, 201, buildProject('u', title, DEMO_LINES));
+      { const p = buildProject('u', title, DEMO_LINES); p.origin = 'library'; return send(res, 201, p); }
     }
 
     // ── voices / tts / speech ──
@@ -289,7 +290,8 @@ http.createServer((req, res) => {
     // ── usage / billing ──
     if (path === '/usage/me')
       return send(res, 200, { costMicrosUsed: 1830000, costLimitMicros: 5000000, charsUsed: 42150, charLimit: 100000,
-        analysesUsed: 12, analysisLimit: 30, exceeded: false, analysesExceeded: false, isMasterAdmin: false });
+        analysesUsed: 12, analysisLimit: 30, exceeded: false, analysesExceeded: false, isMasterAdmin: false,
+        creditsUsedMilli: 6000, creditLimitMilli: 20000, purchasedMilli: 0, creditsRemainingMilli: 14000, creditsExhausted: false });
     if (path === '/billing/subscription/cancel') return send(res, 200, { ok: true });
     if (path === '/billing/subscription' && req.method === 'GET') return send(res, 200, null);
     if (path === '/healthz') return send(res, 200, { status: 'ok' });

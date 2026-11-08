@@ -14,6 +14,7 @@ import {
 
 import { ThemeProvider } from './src/ThemeContext';
 import { AuthProvider, useAuth } from './src/AuthContext';
+import { ToastProvider } from './src/components/Toast';
 import RootNavigator from './src/navigation/RootNavigator';
 import { themes } from './src/theme';
 
@@ -52,7 +53,9 @@ export default function App() {
     <SafeAreaProvider>
       <ThemeProvider initial="light">
         <AuthProvider>
-          <Root fontsLoaded={fontsLoaded} />
+          <ToastProvider>
+            <Root fontsLoaded={fontsLoaded} />
+          </ToastProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

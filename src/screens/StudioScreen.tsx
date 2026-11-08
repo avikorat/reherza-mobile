@@ -1,281 +1,402 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Modal, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType } from 'expo-camera';
+import { useKeepAwake } from 'expo-keep-awake';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Projects, playableLines } from '../api';
+import { useToast } from '../components/Toast';
+import { Projects, Tts, Voices, playableLines } from '../api';
+import { cacheClip, leaveRehearsalAudioMode, playClip, stopPlayback } from '../lib/audio';
+import { buildPrepLines, estimateDuration } from '../lib/rehearsal';
 import { explainPermission, openSettingsForPermission } from '../lib/permissions';
 import { fonts, radii, palette, stageSurfaces, RED_DOT } from '../theme';
-import type { RootStackParamList } from '../types';
+import type { PlayableLine, Project, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Studio'>;
 
-// Self-tape studio — records real video with the front camera and hands the
-// clip to TakeReview, which uploads it via the storage + selftapes endpoints.
+const DEFAULT_VOICE = 'EXAVITQu4vr4xnSDxMaL';
+type Phase = 'idle' | 'ai-speaking' | 'user-turn' | 'paused' | 'done';
+type Stage = null | 'checking' | 'camera' | 'voices';
+type CueMode = 'full' | 'cue' | 'hide';
+
+const hash = (s: string) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+const fmt = (ms: number) => { const s = Math.floor(ms / 1000); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+
+// The web's Studio in self-tape mode: credits check → camera → the partner's
+// lines are generated up front → count-in → the camera records while the AI
+// partner reads every other role. Your lines advance with "Next line" — the
+// camera owns the microphone while it records, so the web's silence detection
+// isn't available here.
 export default function StudioScreen({ navigation, route }: Props) {
   const projectId = route.params?.id;
+  const countdownSec = [0, 3, 5, 10].includes(route.params?.countdown ?? -1) ? route.params!.countdown! : 3;
+  const toast = useToast();
+  useKeepAwake();
   const cameraRef = useRef<CameraView | null>(null);
   const [camPerm, requestCamPerm] = useCameraPermissions();
   const [micPerm, requestMicPerm] = useMicrophonePermissions();
   const [facing, setFacing] = useState<CameraType>('front');
-  const [ready, setReady] = useState(false);
-  const [count, setCount] = useState(3);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [project, setProject] = useState<Project | null>(null);
+  const [lines, setLines] = useState<PlayableLine[]>([]);
+  const [stage, setStage] = useState<Stage>('checking');
+  const [prep, setPrep] = useState<{ done: number; total: number } | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [step, setStep] = useState(0);
+  const [phase, setPhase] = useState<Phase>('idle');
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [prompt, setPrompt] = useState<{ speaker: string; text: string } | null>(null);
-  const stoppedRef = useRef(false);
-  const navigatedRef = useRef(false);
+  // Reading aids — they change how the script looks, never the recording.
+  const [aidsOpen, setAidsOpen] = useState(false);
+  const [textScale, setTextScale] = useState(1);
+  const [eyeline, setEyeline] = useState(0.42);
+  const [cueMode, setCueMode] = useState<CueMode>('full');
+  const [mirror, setMirror] = useState(false);
+  const [captions, setCaptions] = useState(true);
 
-  // Ask for camera + mic up front: one rationale dialog, then the system
-  // prompts. Refused for good → the Settings dialog instead of a dead prompt.
+  const clips = useRef<Map<number, string>>(new Map());
+  const phaseRef = useRef<Phase>('idle');
+  const stepRef = useRef(0);
+  const linesRef = useRef<PlayableLine[]>([]);
+  const skipped = useRef<number[]>([]);
+  const startedAt = useRef(0);
+  const discard = useRef(false);
+  const alive = useRef(true);
+  const setPh = (p: Phase) => { phaseRef.current = p; setPhase(p); };
+
+  const granted = !!(camPerm?.granted && micPerm?.granted);
+
+  const leave = useCallback((title: string, message: string) => {
+    discard.current = true;
+    cameraRef.current?.stopRecording();
+    void stopPlayback();
+    Alert.alert(title, message);
+    navigation.goBack();
+  }, [navigation]);
+
+  // ── 1. Load + credits check (nothing records before this passes) ──
+  useEffect(() => {
+    alive.current = true;
+    if (!projectId) { navigation.goBack(); return; }
+    void (async () => {
+      try {
+        const [p, assigns] = await Promise.all([Projects.get(projectId), Voices.forProject(projectId).catch(() => [])]);
+        if (!alive.current) return;
+        const ls = playableLines(p);
+        if (!ls.length || !ls.some((l) => l.mine)) {
+          leave('Set up this script first', 'Pick the character you are playing before recording a self-tape.');
+          return;
+        }
+        const voiceOf = (s: string) => assigns.find((a) => a.speaker === s)?.voiceId ?? DEFAULT_VOICE;
+        const prepLines = buildPrepLines(ls, (l) => !(l as PlayableLine).mine, voiceOf);
+        if (prepLines.length) {
+          const batch = { profile: 'enhanced' as const, sceneTitle: p.title, projectId, lines: prepLines };
+          const v = await Tts.preflight(batch);
+          if (!alive.current) return;
+          if (!v.allowed) {
+            const out = (v.code ?? 'insufficient_voice_allowance') === 'insufficient_voice_allowance';
+            leave(
+              out ? 'Not enough AI voice credits' : 'Your self-tape couldn’t start',
+              `${v.error ?? 'You don’t have enough AI voice credits remaining to start this session.'}\n\n${out ? 'Your self-tape didn’t start, so nothing was recorded and no credits were used.' : 'Your self-tape didn’t start. Nothing was recorded.'}`
+            );
+            return;
+          }
+        }
+        linesRef.current = ls;
+        setProject(p);
+        setLines(ls);
+        setStage('camera');
+
+        // ── 3. Generate every partner line now, so the take never waits ──
+        const aiSteps = ls.map((l, i) => (l.mine ? -1 : i)).filter((i) => i >= 0);
+        if (aiSteps.length) {
+          await Tts.pregenerate({ profile: 'enhanced', sceneTitle: p.title, projectId, lines: prepLines }).catch(() => null);
+          let done = 0, cursor = 0, ok = true;
+          setPrep({ done: 0, total: aiSteps.length });
+          const worker = async () => {
+            while (cursor < aiSteps.length && alive.current) {
+              const s = aiSteps[cursor++];
+              const l = ls[s], prev = ls[s - 1], next = ls[s + 1];
+              try {
+                const res = await Tts.speak({
+                  text: l.text, voiceId: voiceOf(l.speaker), profile: 'enhanced', speaker: l.speaker, sceneTitle: p.title, projectId,
+                  contextBefore: prev ? `${prev.speaker}: ${prev.text}` : undefined,
+                  contextAfter: next ? `${next.speaker}: ${next.text}` : undefined,
+                  action: [l.action, l.deliveryNote].filter((v) => v?.trim()).join('; ') || undefined,
+                  emotion: l.emotion, intensity: l.intensity, audioTags: l.audioTags,
+                });
+                clips.current.set(s, res.mock ? `mock:${estimateDuration(l.text)}` : await cacheClip(`st-${hash(`${voiceOf(l.speaker)}|${l.text}`)}`, res.audioBase64, res.mimeType));
+              } catch {
+                ok = false;
+              } finally {
+                done++;
+                if (alive.current) setPrep({ done, total: aiSteps.length });
+              }
+            }
+          };
+          await Promise.all(Array.from({ length: Math.min(3, aiSteps.length) }, worker));
+          if (!alive.current) return;
+          if (!ok) {
+            leave('Your self-tape couldn’t start', 'Some of your scene partner’s lines couldn’t be generated. Your self-tape didn’t start. Nothing was recorded.');
+            return;
+          }
+        }
+        setPrep(null);
+        setStage(null);
+      } catch (e) {
+        leave("Couldn't open the Studio", e instanceof Error ? e.message : 'Please try again.');
+      }
+    })();
+    return () => {
+      alive.current = false;
+      void stopPlayback();
+      void leaveRehearsalAudioMode();
+    };
+  }, [projectId]);
+
+  // ── 2. Camera + mic, staged like the rest of the app ──
   const askedRef = useRef(false);
   const askForAccess = async () => {
-    const blocked =
-      (camPerm && !camPerm.granted && !camPerm.canAskAgain) || (micPerm && !micPerm.granted && !micPerm.canAskAgain);
+    const blocked = (camPerm && !camPerm.granted && !camPerm.canAskAgain) || (micPerm && !micPerm.granted && !micPerm.canAskAgain);
     if (blocked) { await openSettingsForPermission('camera'); return; }
     if (!(await explainPermission('camera'))) return;
     if (!camPerm?.granted) await requestCamPerm();
     if (!micPerm?.granted) await requestMicPerm();
   };
   useEffect(() => {
-    if (!camPerm || !micPerm || askedRef.current) return;
-    if (camPerm.granted && micPerm.granted) return;
+    if (!camPerm || !micPerm || askedRef.current || granted) return;
     askedRef.current = true;
     void askForAccess();
   }, [camPerm, micPerm]);
 
-  // Teleprompter: the user's first line from the project.
+  // ── 4. Count in, then roll ──
+  const startedRef = useRef(false);
   useEffect(() => {
-    if (!projectId) return;
-    Projects.get(projectId)
-      .then((p) => {
-        const line = playableLines(p).find((l) => l.mine);
-        if (line) setPrompt({ speaker: line.speaker, text: line.text });
-      })
-      .catch(() => {});
-  }, [projectId]);
-
-  const granted = Boolean(camPerm?.granted && micPerm?.granted);
-
-  // Countdown once the camera is live, then start rolling.
-  useEffect(() => {
-    if (!granted || !ready || count <= 0) return;
-    const t = setTimeout(() => setCount((c) => c - 1), 900);
-    return () => clearTimeout(t);
-  }, [granted, ready, count]);
-
-  useEffect(() => {
-    if (granted && ready && count === 0 && !recording) void startRecordingNow();
-  }, [granted, ready, count]);
-
-  // REC clock.
-  useEffect(() => {
-    if (!recording) return;
-    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(t);
-  }, [recording]);
-
-  // Keep the latest elapsed value readable from the recordAsync closure.
-  const elapsedRef = useRef(0);
-  useEffect(() => {
-    elapsedRef.current = elapsed;
-  }, [elapsed]);
-
-  const startRecordingNow = async () => {
-    if (!cameraRef.current || recording) return;
-    setRecording(true);
-    stoppedRef.current = false;
-    try {
-      const video = await cameraRef.current.recordAsync({ maxDuration: 300 });
-      // stoppedRef is set by Close/Redo — those takes are discarded.
-      if (video?.uri && !stoppedRef.current && !navigatedRef.current) {
-        navigatedRef.current = true;
-        navigation.replace('TakeReview', {
-          id: projectId,
-          uri: video.uri,
-          durationMs: (elapsedRef.current || 1) * 1000,
-        });
-      } else {
-        setRecording(false);
+    if (stage !== null || !granted || !cameraReady || startedRef.current) return;
+    startedRef.current = true;
+    void (async () => {
+      for (let n = countdownSec; n > 0 && alive.current; n--) {
+        setCountdown(n);
+        await new Promise((r) => setTimeout(r, 1000));
       }
+      setCountdown(null);
+      if (!alive.current) return;
+      void record();
+      run(0);
+    })();
+  }, [stage, granted, cameraReady]);
+
+  const record = async () => {
+    if (!cameraRef.current) return;
+    setRecording(true);
+    startedAt.current = Date.now();
+    try {
+      const video = await cameraRef.current.recordAsync({ maxDuration: 600 });
+      setRecording(false);
+      if (!video?.uri || discard.current || !alive.current) return;
+      if (skipped.current.length) {
+        toast({ title: `${skipped.current.length} line${skipped.current.length === 1 ? '' : 's'} couldn't be voiced`, description: 'Your scene partner skipped them so the take could keep running.', variant: 'destructive' });
+      }
+      navigation.replace('TakeReview', { id: projectId, uri: video.uri, durationMs: Math.max(1000, Date.now() - startedAt.current) });
     } catch {
       setRecording(false);
     }
   };
 
-  const stop = () => {
+  useEffect(() => {
     if (!recording) return;
-    stoppedRef.current = false; // let the resolved promise navigate
-    cameraRef.current?.stopRecording();
-    // Watchdog: some emulators (Expo Go SDK 51) never finalize the video —
-    // don't leave the user stuck on a REC screen if that happens.
-    setTimeout(() => {
-      if (!navigatedRef.current) {
-        stoppedRef.current = true;
-        setRecording(false);
-        Alert.alert(
-          'Recording not finalized',
-          'The camera could not finalize this video. On emulators this is a known Expo Go limitation — use a development build or a real device for self-tapes.'
-        );
-      }
-    }, 8000);
+    const id = setInterval(() => setElapsed(Date.now() - startedAt.current), 250);
+    return () => clearInterval(id);
+  }, [recording]);
+
+  // ── 5. The scene: the partner speaks, you speak, "Next line" moves on ──
+  const run = (s: number) => {
+    const ls = linesRef.current;
+    if (s >= ls.length) { setPh('done'); cameraRef.current?.stopRecording(); return; }
+    stepRef.current = s;
+    setStep(s);
+    if (ls[s].mine) { setPh('user-turn'); return; }
+    setPh('ai-speaking');
+    const clip = clips.current.get(s);
+    const advance = () => { if (phaseRef.current !== 'paused' && stepRef.current === s && alive.current) run(s + 1); };
+    if (!clip) { skipped.current.push(s); advance(); return; }
+    if (clip.startsWith('mock:')) setTimeout(advance, Number(clip.slice(5)));
+    else void playClip(clip, true).then(advance);
   };
 
+  const nextLine = () => { if (phaseRef.current === 'user-turn') run(stepRef.current + 1); };
+  const pause = () => { void stopPlayback(); setPh('paused'); };
+  const resume = () => run(stepRef.current);
+  const stop = () => { void stopPlayback(); setPh('done'); cameraRef.current?.stopRecording(); };
   const close = () => {
-    stoppedRef.current = true;
-    if (recording) cameraRef.current?.stopRecording();
-    navigation.goBack();
+    const quit = () => { discard.current = true; cameraRef.current?.stopRecording(); void stopPlayback(); navigation.goBack(); };
+    if (!recording) { quit(); return; }
+    Alert.alert('Stop this take?', 'This take is discarded.', [{ text: 'Keep recording', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: quit }]);
   };
 
-  const redo = () => {
-    if (recording) {
-      stoppedRef.current = true;
-      cameraRef.current?.stopRecording();
-    }
-    setRecording(false);
-    setElapsed(0);
-    setCount(3);
-  };
-
-  const clock = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
-
+  // ── Render ──
   if (camPerm && micPerm && !granted) {
     return (
       <SafeAreaView style={styles.safe}>
         <StatusBar style="light" />
-        <View style={styles.permWrap}>
+        <View style={styles.center}>
           <Feather name="video-off" size={40} color={stageSurfaces.onDarkSubtle} />
-          <Text style={styles.permTitle}>Camera & mic needed</Text>
-          <Text style={styles.permText}>
-            Self-tapes record video and audio. Allow camera and microphone access to use the Studio.
-          </Text>
-          <TouchableOpacity onPress={() => void askForAccess()} style={styles.permBtn} accessibilityRole="button">
+          <Text style={styles.permTitle}>Enable your camera & mic to record a self-tape.</Text>
+          <Text style={styles.permText}>Record yourself on camera while your AI scene partner reads the other roles live.</Text>
+          <TouchableOpacity onPress={() => void askForAccess()} style={styles.primary} accessibilityRole="button">
             <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: palette.white }}>
-              {(camPerm && !camPerm.canAskAgain) || (micPerm && !micPerm.canAskAgain) ? 'Open Settings' : 'Allow access'}
+              {(camPerm && !camPerm.canAskAgain) || (micPerm && !micPerm.canAskAgain) ? 'Open Settings' : 'Enable Camera & Mic'}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 14 }}>
-            <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: stageSurfaces.onDarkSubtle }}>Go back</Text>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ minHeight: 44, justifyContent: 'center' }} accessibilityRole="button">
+            <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: stageSurfaces.onDarkSubtle }}>Back to the script</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
+  const current = lines[step];
+  const prev = lines[step - 1];
+  const nextL = lines[step + 1];
+  const yourText = (l: PlayableLine) =>
+    cueMode === 'full' ? l.text : cueMode === 'cue' ? `${l.text.split(/\s+/)[0] ?? ''} …` : '• • •';
+  const stageCopy: Record<Exclude<Stage, null>, [string, string]> = {
+    checking: ['Checking your credits…', 'Making sure this scene can run before anything starts recording.'],
+    camera: ['Turning on your camera…', 'If your phone asks for permission, choose Allow.'],
+    voices: ['Getting your scene partner ready…', 'Their lines are being generated now, so the scene plays without pauses.'],
+  };
+  const showStage: Exclude<Stage, null> | null = stage === 'camera' && prep ? 'voices' : stage;
+
   return (
-    // The viewfinder is FULL-BLEED: it sits outside the safe area so the frame
-    // the actor composes is the frame that gets recorded, edge to edge. Only
-    // the chrome on top of it is inset — see `chrome` below.
     <View style={styles.safe}>
       <StatusBar style="light" />
       {granted ? (
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing={facing}
-          mode="video"
-          onCameraReady={() => setReady(true)}
-        />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: stageSurfaces.bg, alignItems: 'center', justifyContent: 'center' }]}>
-          <ActivityIndicator color={palette.cyanBright} />
-        </View>
-      )}
+        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} mode="video" mirror={facing === 'front'} onCameraReady={() => setCameraReady(true)} />
+      ) : null}
 
-      {/* Every control sits inside the safe area, over the full-bleed preview:
-          the REC clock clears the notch, the shutter clears the home indicator. */}
       <SafeAreaView style={styles.chrome}>
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={close} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close studio" style={styles.chip}>
-            <Feather name="x" size={14} color={palette.white} />
-            <Text style={styles.chipText}>Close</Text>
+          <TouchableOpacity onPress={close} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back to script" style={styles.chip}>
+            <Feather name="chevron-left" size={15} color={palette.white} />
+            <Text style={styles.chipText}>Back to script</Text>
           </TouchableOpacity>
-          <View style={styles.chip}>
-            <View style={[styles.recDot, !recording && { backgroundColor: 'rgba(255,255,255,0.4)' }]} />
-            <Text style={styles.chipText}>{recording ? `REC ${clock}` : 'STANDBY'}</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {recording ? (
+              <View style={styles.chip}><View style={styles.recDot} /><Text style={styles.chipText}>REC {fmt(elapsed)}</Text></View>
+            ) : null}
+            <TouchableOpacity onPress={() => setAidsOpen(true)} accessibilityRole="button" style={styles.chip}><Text style={styles.chipText}>⚙ Aids</Text></TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.countWrap} pointerEvents="none">
-          {granted && ready && count > 0 ? <Text style={styles.count}>{count}</Text> : null}
-        </View>
+        {showStage ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={palette.cyanBright} />
+            <Text style={styles.stageTitle}>{stageCopy[showStage][0]}</Text>
+            <Text style={styles.stageBody}>{stageCopy[showStage][1]}</Text>
+            {prep && prep.total ? <Text style={styles.stageBody}>Preparing voices… {prep.done} / {prep.total}</Text> : null}
+          </View>
+        ) : countdown !== null ? (
+          <View style={styles.center} pointerEvents="none"><Text style={styles.count}>{countdown}</Text></View>
+        ) : (
+          <View style={{ flex: 1, justifyContent: 'flex-start', paddingTop: `${Math.round(eyeline * 60)}%` }}>
+            {captions && current ? (
+              <View style={[styles.prompter, mirror && { transform: [{ scaleX: -1 }] }]}>
+                {prev ? <Text numberOfLines={1} style={[styles.dim, { fontSize: 13 * textScale }]}>{prev.speaker}: {prev.mine ? yourText(prev) : prev.text}</Text> : null}
+                <Text style={[styles.speaker, { color: current.mine ? palette.white : palette.cyanBright }]}>
+                  {current.mine ? `YOU · ${current.speaker}` : phase === 'ai-speaking' ? `${current.speaker} · Partner speaking…` : current.speaker}
+                </Text>
+                <Text style={[styles.line, { fontSize: 21 * textScale, lineHeight: 30 * textScale, color: current.mine ? palette.white : palette.cyanBright }]}>
+                  {current.mine ? yourText(current) : current.text}
+                </Text>
+                {nextL ? <Text numberOfLines={1} style={[styles.dim, { fontSize: 13 * textScale, marginTop: 8 }]}>{nextL.speaker}: {nextL.mine ? yourText(nextL) : nextL.text}</Text> : null}
+              </View>
+            ) : null}
+          </View>
+        )}
 
-        <View style={styles.prompter}>
-          <Text style={styles.prompterLabel}>
-            TELEPROMPTER{prompt ? ` · ${prompt.speaker}` : ''}
-          </Text>
-          <Text style={styles.prompterText} numberOfLines={3}>
-            {prompt ? prompt.text : 'Deliver your line to camera. Tap the red button to finish the take.'}
-          </Text>
-        </View>
-
-        <View style={styles.controls}>
-          <TouchableOpacity onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} style={styles.sideBtn}>
-            <View style={styles.sideIcon}>
-              <Feather name="repeat" size={22} color={palette.white} />
-            </View>
-            <Text style={styles.sideLabel}>Flip</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={recording ? stop : () => void startRecordingNow()}
-            accessibilityRole="button"
-            accessibilityLabel={recording ? 'Stop recording' : 'Start recording'}
-            style={styles.recOuter}
-          >
-            <View style={[styles.recInner, recording && styles.recInnerActive]} />
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={redo} style={styles.sideBtn}>
-            <View style={styles.sideIcon}>
-              <Feather name="refresh-cw" size={22} color={palette.white} />
-            </View>
-            <Text style={styles.sideLabel}>Redo</Text>
-          </TouchableOpacity>
-        </View>
+        {!showStage && countdown === null && phase !== 'idle' && phase !== 'done' ? (
+          <View style={styles.controls}>
+            <TouchableOpacity onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} disabled={recording} accessibilityRole="button" style={[styles.side, recording && { opacity: 0.4 }]}>
+              <Text style={styles.chipText}>⟲ Flip</Text>
+            </TouchableOpacity>
+            {phase === 'paused' ? (
+              <TouchableOpacity onPress={resume} accessibilityRole="button" style={styles.primary}><Text style={styles.primaryText}>Resume</Text></TouchableOpacity>
+            ) : phase === 'user-turn' ? (
+              <TouchableOpacity onPress={nextLine} accessibilityRole="button" style={styles.primary}><Text style={styles.primaryText}>Next line</Text></TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={pause} accessibilityRole="button" style={styles.side}><Text style={styles.chipText}>⏸ Pause</Text></TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={stop} accessibilityRole="button" accessibilityLabel="Finish take" style={styles.recOuter}>
+              <View style={styles.recInner} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </SafeAreaView>
+
+      <Modal visible={aidsOpen} transparent animationType="slide" onRequestClose={() => setAidsOpen(false)}>
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setAidsOpen(false)} />
+        <View style={styles.aids}>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+            <View>
+              <Text style={styles.aidsTitle}>Reading aids</Text>
+              <Text style={styles.aidsHelp}>Tune the teleprompter to help you rehearse. They change how the script looks while you run the scene — they don't change your recording.</Text>
+            </View>
+            <Aid label="Text size" help="How large the lines appear." options={[['0.85', 'S'], ['1', 'M'], ['1.25', 'L'], ['1.5', 'XL']]} value={String(textScale)} onPick={(v) => setTextScale(Number(v))} />
+            <Aid label="Eyeline" help="Where the active line sits, so your gaze stays near the lens." options={[['0.1', 'High'], ['0.42', 'Middle'], ['0.8', 'Low']]} value={String(eyeline)} onPick={(v) => setEyeline(Number(v))} />
+            <Aid label="Cue level" help="How much of your lines to show — full text, a first-word cue, or hidden to test memory." options={[['full', 'Full'], ['cue', 'Cue'], ['hide', 'Hide']]} value={cueMode} onPick={(v) => setCueMode(v as CueMode)} />
+            <Aid label="Mirror" help="Flips the text for teleprompter glass / reflector rigs." options={[['off', 'Off'], ['on', 'On']]} value={mirror ? 'on' : 'off'} onPick={(v) => setMirror(v === 'on')} />
+            <Aid label="Captions" help="Show or hide the script text over your camera. Off gives you a clean frame." options={[['on', 'On'], ['off', 'Off']]} value={captions ? 'on' : 'off'} onPick={(v) => setCaptions(v === 'on')} />
+          </ScrollView>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+function Aid({ label, help, options, value, onPick }: { label: string; help: string; options: Array<[string, string]>; value: string; onPick: (v: string) => void }) {
+  return (
+    <View>
+      <Text style={{ fontFamily: fonts.bold, fontSize: 13.5, color: palette.white }}>{label}</Text>
+      <Text style={styles.aidsHelp}>{help}</Text>
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+        {options.map(([v, l]) => (
+          <TouchableOpacity key={v} onPress={() => onPick(v)} accessibilityRole="button" accessibilityState={{ selected: v === value }} style={[styles.aidOpt, v === value && { backgroundColor: palette.blue, borderColor: palette.blue }]}>
+            <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: palette.white }}>{l}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // The Studio is always on stage surfaces — it is chrome over live video, so
-  // the on-video half of the teleprompter tokens applies: your line in white
-  // (--tp-you-on-video), the labels in bright cyan (--tp-partner-on-video).
-  // The normal contrast rules don't hold here; the scrims supply the contrast.
   safe: { flex: 1, backgroundColor: stageSurfaces.bg },
-  // Transparent inset layer holding the controls above the preview.
   chrome: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 8 },
-  chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.4)', paddingVertical: 7, paddingHorizontal: 13, borderRadius: 999,
-  },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 12 },
+  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.45)', minHeight: 36, paddingHorizontal: 13, borderRadius: 999 },
   chipText: { fontFamily: fonts.semibold, fontSize: 13, color: palette.white },
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: RED_DOT },
-  countWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  count: { fontFamily: fonts.heavy, fontSize: 120, color: 'rgba(255,255,255,0.9)', lineHeight: 130, letterSpacing: -4 },
-  prompter: {
-    marginHorizontal: 16, marginBottom: 20, backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: radii.card, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-  },
-  prompterLabel: { fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 1, color: palette.cyanBright, marginBottom: 8 },
-  prompterText: { fontFamily: fonts.regular, fontSize: 19, lineHeight: 28, color: palette.white },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 34, paddingBottom: 24 },
-  sideBtn: { alignItems: 'center', gap: 5 },
-  sideIcon: { width: 48, height: 48, borderRadius: radii.tile, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
-  sideLabel: { fontFamily: fonts.semibold, fontSize: 10, color: palette.white },
-  recOuter: { width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: palette.white, alignItems: 'center', justifyContent: 'center' },
-  recInner: {
-    width: 60, height: 60, borderRadius: 30, backgroundColor: RED_DOT,
-    shadowColor: RED_DOT, shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 0 },
-  },
-  recInnerActive: { width: 34, height: 34, borderRadius: 8 },
-  permWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 12 },
-  permTitle: { fontFamily: fonts.heavy, fontSize: 22, color: palette.white, letterSpacing: -0.4 },
+  stageTitle: { fontFamily: fonts.heavy, fontSize: 20, color: palette.white, textAlign: 'center' },
+  stageBody: { fontFamily: fonts.regular, fontSize: 13.5, lineHeight: 20, color: stageSurfaces.onDarkMuted, textAlign: 'center' },
+  count: { fontFamily: fonts.heavy, fontSize: 120, color: 'rgba(255,255,255,0.9)', letterSpacing: -4 },
+  prompter: { marginHorizontal: 16, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: radii.card, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  dim: { fontFamily: fonts.regular, color: 'rgba(255,255,255,0.5)' },
+  speaker: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 1, marginTop: 8, marginBottom: 6 },
+  line: { fontFamily: fonts.semibold },
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 20 },
+  side: { minHeight: 44, minWidth: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 999, paddingHorizontal: 14 },
+  primary: { minHeight: 48, paddingHorizontal: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.blue, borderRadius: radii.pill },
+  primaryText: { fontFamily: fonts.bold, fontSize: 15, color: palette.white },
+  recOuter: { width: 64, height: 64, borderRadius: 32, borderWidth: 4, borderColor: palette.white, alignItems: 'center', justifyContent: 'center' },
+  recInner: { width: 26, height: 26, borderRadius: 6, backgroundColor: RED_DOT },
+  permTitle: { fontFamily: fonts.heavy, fontSize: 20, color: palette.white, textAlign: 'center' },
   permText: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 21, color: stageSurfaces.onDarkMuted, textAlign: 'center' },
-  permBtn: { marginTop: 10, backgroundColor: palette.blue, paddingHorizontal: 26, paddingVertical: 13, borderRadius: radii.pill },
+  aids: { backgroundColor: stageSurfaces.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '75%' },
+  aidsTitle: { fontFamily: fonts.heavy, fontSize: 18, color: palette.white },
+  aidsHelp: { fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, color: stageSurfaces.onDarkMuted, marginTop: 3 },
+  aidOpt: { minHeight: 34, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
 });

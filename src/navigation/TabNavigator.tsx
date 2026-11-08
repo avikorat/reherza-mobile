@@ -9,16 +9,16 @@ import type { TabParamList } from '../types';
 
 import HomeScreen from '../screens/HomeScreen';
 import PlayhouseScreen from '../screens/PlayhouseScreen';
-import RehearseScreen from '../screens/RehearseScreen';
+import HistoryScreen from '../screens/HistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator<TabParamList>();
 
 const ICONS: Record<keyof TabParamList, keyof typeof Feather.glyphMap> = {
   Home: 'home',
-  Playhouse: 'book',
-  Rehearse: 'mic',
-  Profile: 'user',
+  Library: 'book-open',
+  History: 'clock',
+  Settings: 'settings',
 };
 
 // The bar's own content — icon, label, breathing room — above whatever the
@@ -67,10 +67,12 @@ export default function TabNavigator() {
           ),
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Playhouse" component={PlayhouseScreen} />
-      <Tab.Screen name="Rehearse" component={RehearseScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      {/* The web's top-level destinations: Dashboard, the Reherza Library,
+          History and Settings (the account menu's other entries live inside). */}
+      <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Dashboard' }} />
+      <Tab.Screen name="Library" component={PlayhouseScreen} />
+      <Tab.Screen name="History" component={HistoryScreen} />
+      <Tab.Screen name="Settings" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }

@@ -10,7 +10,6 @@ import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import LegalScreen from '../screens/LegalScreen';
 import NewScriptScreen from '../screens/NewScriptScreen';
-import ParsingScreen from '../screens/ParsingScreen';
 import ScriptDetailScreen from '../screens/ScriptDetailScreen';
 import ScriptEditorScreen from '../screens/ScriptEditorScreen';
 import RehearsalRoomScreen from '../screens/RehearsalRoomScreen';
@@ -18,7 +17,7 @@ import StudioScreen from '../screens/StudioScreen';
 import TakeReviewScreen from '../screens/TakeReviewScreen';
 import SessionResultsScreen from '../screens/SessionResultsScreen';
 import BillingScreen from '../screens/BillingScreen';
-import HistoryScreen from '../screens/HistoryScreen';
+import HistoryScriptScreen from '../screens/HistoryScriptScreen';
 import FeedbackScreen from '../screens/FeedbackScreen';
 import ContactScreen from '../screens/ContactScreen';
 
@@ -44,12 +43,11 @@ export default function RootNavigator() {
 
       {/* Flow */}
       <Stack.Screen name="NewScript" component={NewScriptScreen} />
-      <Stack.Screen name="Parsing" component={ParsingScreen} />
       <Stack.Screen name="ScriptDetail" component={ScriptDetailScreen} />
       <Stack.Screen name="ScriptEditor" component={ScriptEditorScreen} />
       <Stack.Screen name="SessionResults" component={SessionResultsScreen} />
       <Stack.Screen name="Billing" component={BillingScreen} />
-      <Stack.Screen name="History" component={HistoryScreen} />
+      <Stack.Screen name="HistoryScript" component={HistoryScriptScreen} />
       <Stack.Screen name="Feedback" component={FeedbackScreen} />
       <Stack.Screen name="Contact" component={ContactScreen} />
 

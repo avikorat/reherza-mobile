@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { Feather } from '@expo/vector-icons';
@@ -10,7 +10,9 @@ import GradientButton from '../components/GradientButton';
 import OutlineButton from '../components/OutlineButton';
 import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
-import { Sessions, Storage, Usage, getToken } from '../api';
+import { Projects, Sessions, Storage, Usage, getToken } from '../api';
+import { formatScriptTitle } from '../lib/format';
+import { useToast } from '../components/Toast';
 import { scoreFill, scoreLabel, scoreText } from '../lib/scoreColors';
 import { DELIVERY_PARAMS, paramLabel, wordDiff } from '../lib/rehearsal';
 import { fonts, radii } from '../theme';
@@ -25,7 +27,9 @@ type T = ReturnType<typeof useTheme>['theme'];
 export default function SessionResultsScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const { projectId, sessionId } = route.params;
+  const toast = useToast();
   const [session, setSession] = useState<Session | null>(null);
+  const [projectTitle, setProjectTitle] = useState<string | undefined>(undefined);
   const [previous, setPrevious] = useState<Session | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [coaching, setCoaching] = useState<SessionCoaching | null | 'pending'>(null);
@@ -41,6 +45,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
         ]);
         setSession(s);
         setUsage(u);
+        Projects.get(projectId).then((p) => setProjectTitle(formatScriptTitle(p.title))).catch(() => {});
         // Delta is against the last scored, non-skipped session before this one.
         const mine = list.findIndex((x) => x.id === s.id);
         setPrevious(list.slice(mine + 1).find((x) => x.feedback?.confidenceScore != null && !x.feedback.analysisSkipped) ?? null);
@@ -52,9 +57,8 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
           Sessions.coachSummary(projectId, sessionId).then(setCoaching).catch(() => setCoaching(null));
         }
       } catch (e) {
-        Alert.alert('Session not found', e instanceof Error ? e.message : 'Unknown error', [
-          { text: 'OK', onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Main' }] }) },
-        ]);
+        toast({ title: "That session doesn't exist", description: 'Taking you back to your dashboard.' });
+        navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
       }
     })();
   }, [projectId, sessionId]);
@@ -86,6 +90,17 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
   }
   const delta = score != null && previous?.feedback.confidenceScore != null ? score - previous.feedback.confidenceScore : null;
   const matrix = fb.deliveryMatrix;
+  // Older sessions: average the per-line emotion match / clarity (0-1 or 0-100).
+  const legacy = (fb.lines ?? []).filter((l) => l.delivery && (l.delivery.emotionMatch != null || l.delivery.clarity != null));
+  const pct = (v: number | undefined) => (v == null ? 0 : v <= 1 ? v * 100 : v);
+  const voice = legacy.length
+    ? {
+        emotion: Math.round(legacy.reduce((n, l) => n + pct(l.delivery!.emotionMatch), 0) / legacy.length),
+        clarity: Math.round(legacy.reduce((n, l) => n + pct(l.delivery!.clarity), 0) / legacy.length),
+        notes: [...legacy.flatMap((l) => l.delivery!.pronunciationNotes ?? []).reduce((m, n) => m.set(n, (m.get(n) ?? 0) + 1), new Map<string, number>())]
+          .sort((a, b) => b[1] - a[1]).slice(0, 6).map(([n]) => n),
+      }
+    : null;
   const mins = Math.floor((fb.durationSeconds || 0) / 60);
   const secs = (fb.durationSeconds || 0) % 60;
 
@@ -133,7 +148,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
           </Card>
         ) : (
           <Card style={{ alignItems: 'center' }}>
-            <Text style={[styles.eyebrow, { color: theme.muted }]}>Overall score</Text>
+            <Text style={[styles.eyebrow, { color: theme.muted }]}>Overall Score</Text>
             <ScoreRing theme={theme} score={score!} />
             <Text style={{ fontFamily: fonts.bold, fontSize: 15, color: scoreText(theme, score!), marginTop: 6 }}>{scoreLabel(score!)}</Text>
             {delta != null ? (
@@ -154,6 +169,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
           <ScenePlayer
             theme={theme}
             clips={fb.recording.clips}
+            title={projectTitle}
             onDelete={() =>
               Alert.alert('Delete recording?', 'The audio of this run is deleted. Your score and notes stay.', [
                 { text: 'Cancel', style: 'cancel' },
@@ -172,7 +188,10 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
 
         {matrix && matrix.analyzedCount > 0 ? (
           <Card>
-            <Text style={[styles.h2, { color: theme.text }]}>Delivery breakdown</Text>
+            <Text style={[styles.eyebrow, { color: theme.muted }]}>Score matrix</Text>
+            <Text style={[styles.body, { color: theme.muted, marginTop: 4, marginBottom: 6 }]}>
+              Your delivery, scored across four areas of the craft: how you used your voice, what you played beneath the words, how the read served the character and scene, and how faithful you were to the script.
+            </Text>
             {['Vocal', 'Emotional & Interpretive', 'Textual & Character', 'Technical'].map((cat) => {
               const params = DELIVERY_PARAMS.filter((p) => p.category === cat).map((p) => ({ ...p, value: matrix.parameters.find((m) => m.key === p.key)?.value ?? null }));
               return (
@@ -226,6 +245,9 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
           <Card>
             <Text style={[styles.h2, { color: theme.text }]}>Your coach's read on the session</Text>
             <Text style={[styles.body, { color: theme.text }]}>{coaching.summary}</Text>
+            {coaching.focusAreas?.length ? (
+              <Text style={{ fontFamily: fonts.bold, fontSize: 11, letterSpacing: 0.8, color: theme.warning, marginTop: 12 }}>DELIVERY FOCUS</Text>
+            ) : null}
             {coaching.focusAreas?.map((f, i) => (
               <View key={i} style={[styles.box, { backgroundColor: theme.warningBg }]}>
                 <Text style={{ fontFamily: fonts.bold, fontSize: 11, letterSpacing: 0.6, color: theme.warning }}>{paramLabel(f.area).toUpperCase()}</Text>
@@ -237,6 +259,35 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
           </Card>
         ) : null}
 
+        {/* Sessions from before the score matrix carry only emotion match and
+            clarity per line — the web's "Voice & emotion" card. */}
+        {!noScore && !(matrix && matrix.analyzedCount > 0) && voice ? (
+          <Card>
+            <Text style={[styles.eyebrow, { color: theme.muted }]}>Voice & emotion</Text>
+            <View style={{ flexDirection: 'row', marginTop: 12 }}>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontFamily: fonts.heavy, fontSize: 24, color: scoreText(theme, voice.emotion) }}>{voice.emotion}%</Text>
+                <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginTop: 2 }}>Emotion match</Text>
+              </View>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontFamily: fonts.heavy, fontSize: 24, color: theme.accent }}>{voice.clarity}</Text>
+                <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginTop: 2 }}>Clarity</Text>
+              </View>
+            </View>
+            <Text style={[styles.body, { color: theme.muted, textAlign: 'center', marginTop: 8 }]}>How closely the feeling in your voice matched each line, and how clearly you articulated.</Text>
+            {voice.notes.length ? (
+              <View style={{ marginTop: 12 }}>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 10.5, letterSpacing: 0.8, color: theme.muted, marginBottom: 6 }}>PRONUNCIATION TO WATCH</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {voice.notes.map((n) => (
+                    <Text key={n} style={{ fontFamily: fonts.medium, fontSize: 11.5, color: theme.warning, backgroundColor: theme.warningBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' }}>{n}</Text>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </Card>
+        ) : null}
+
         <View style={styles.grid}>
           {stats.map((m) => (
             <Card key={m.label} style={{ width: '48%' }} padding={13}>
@@ -245,6 +296,13 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
             </Card>
           ))}
         </View>
+
+        {!noScore && !(matrix && matrix.analyzedCount > 0) && !coaching && fb.notes ? (
+          <Card>
+            <Text style={[styles.eyebrow, { color: theme.muted }]}>Feedback</Text>
+            <Text style={[styles.body, { color: theme.text, marginTop: 8 }]}>{fb.notes}</Text>
+          </Card>
+        ) : null}
 
         {weak.length ? (
           <View style={{ gap: 10 }}>
@@ -382,7 +440,7 @@ function LineCard({ theme, line }: { theme: T; line: LineResult }) {
 }
 
 // Plays the saved clips in performance order, straight from private storage.
-function ScenePlayer({ theme, clips, onDelete }: { theme: T; clips: RecordingClip[]; onDelete: () => void }) {
+function ScenePlayer({ theme, clips, title, onDelete }: { theme: T; clips: RecordingClip[]; title?: string; onDelete: () => void }) {
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
   const player = useRef<AudioPlayer | null>(null);
@@ -453,8 +511,22 @@ function ScenePlayer({ theme, clips, onDelete }: { theme: T; clips: RecordingCli
           ))}
         </ScrollView>
       </View>
+      <Text style={{ fontFamily: fonts.regular, fontSize: 11, lineHeight: 16, color: theme.muted, marginTop: 10 }}>
+        Saved recordings stay in your <Text style={{ fontFamily: fonts.semibold, color: theme.text }}>History</Text> until you delete them. Download to keep a copy on your device.
+      </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-        <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: theme.muted }}>Cloud recordings are kept for 7 days.</Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          style={{ minHeight: 44, justifyContent: 'center' }}
+          onPress={() => {
+            // The web's buildScriptText: the scene as it was performed.
+            const header = title ? `${title}\n${'='.repeat(title.length)}\n\n` : '';
+            const body = clips.map((c) => `${c.role === 'user' ? `${c.speaker} (You)` : c.speaker}: ${c.text}`).join('\n\n');
+            void Share.share({ title: title || 'Reherza scene', message: `${header}${body}\n` });
+          }}
+        >
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.accent }}>📄 Download script</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={onDelete} accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }}>
           <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.destructive }}>Delete recording</Text>
         </TouchableOpacity>

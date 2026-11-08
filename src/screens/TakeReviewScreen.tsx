@@ -11,6 +11,7 @@ import GradientButton from '../components/GradientButton';
 import OutlineButton from '../components/OutlineButton';
 import { useTheme } from '../ThemeContext';
 import { Storage, SelfTapes, ApiError } from '../api';
+import { useToast } from '../components/Toast';
 import { fonts, radii, palette, stageSurfaces } from '../theme';
 import type { RootStackParamList } from '../types';
 
@@ -45,6 +46,20 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
     setPlaying(!playing);
   };
 
+  const toast = useToast();
+
+  // An unsaved take lives only on this device, so leaving or re-shooting asks.
+  const guard = (where: 'exit' | 'new-take', go: () => void) => {
+    if (saved) { go(); return; }
+    Alert.alert("This take isn't saved yet", `It's only on this device. ${where === 'exit' ? 'Leaving now' : 'Recording another take'} will discard it.`, [
+      { text: 'Discard it', style: 'destructive', onPress: go },
+      { text: 'Go back', style: 'cancel' },
+      { text: 'Save it first', onPress: () => void save() },
+    ]);
+  };
+  const newTake = () => guard('new-take', () => navigation.replace('Studio', { id: projectId }));
+  const exit = () => guard('exit', () => navigation.goBack());
+
   const save = async () => {
     if (!uri || saving || saved) return;
     if (!projectId) {
@@ -72,12 +87,14 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
         watermarkBurnedIn: false,
       });
       setSaved(true);
-      Alert.alert('Take saved', 'Your self-tape is safely in your library.', [
-        { text: 'Done', onPress: () => navigation.popToTop() },
-      ]);
+      toast({ title: 'Take saved', description: "Saved to your account. It'll be here next time, on any device." });
     } catch (e) {
-      const msg = e instanceof ApiError || e instanceof Error ? e.message : 'Upload failed.';
-      Alert.alert('Could not save take', msg);
+      const demo = e instanceof ApiError && e.status === 403;
+      toast({
+        title: demo ? "Saving isn't available on the demo account" : "Couldn't save this take",
+        description: demo ? 'Sign up to keep your self-tapes.' : 'You can still export it. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
@@ -95,15 +112,9 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
   return (
     <Screen>
       <View style={styles.header}>
-        <HeaderAction icon="chevron-left" label="Retake" color={theme.muted} onPress={() => navigation.replace('Studio', { id: projectId })} />
+        <HeaderAction icon="chevron-left" label="Back to script" color={theme.muted} onPress={exit} />
         <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: theme.text }}>Review take</Text>
-        <HeaderAction
-          icon={saved ? 'check' : undefined}
-          label={saved ? 'Saved' : 'Save'}
-          color={saved ? theme.success : theme.accent}
-          disabled={saving || saved}
-          onPress={() => void save()}
-        />
+        <View style={{ width: 60 }} />
       </View>
 
       <View style={[styles.preview, { borderColor: theme.border }]}>
@@ -122,28 +133,30 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
         <Text style={styles.duration}>{clock}</Text>
       </View>
 
-      <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, textAlign: 'center', marginTop: 14 }}>
-        Happy with it? Save it to your library or share it with your reps.
+      {/* Save state first, stated plainly — as on the web. */}
+      <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: saved ? theme.success : theme.muted, textAlign: 'center', marginTop: 14 }}>
+        {saved
+          ? '✓ Saved to your account — available next time, on any device.'
+          : saving
+            ? 'Saving to your account…'
+            : 'Not saved yet — this take is only on this device until you save it.'}
       </Text>
 
       <View style={{ flex: 1 }} />
 
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-        <OutlineButton icon="rotate-ccw" label="Retake" flex onPress={() => navigation.replace('Studio', { id: projectId })} />
-        <OutlineButton secondary icon="share" label="Share" flex onPress={() => void exportTape()} />
+        <OutlineButton label="↺ New take" flex onPress={newTake} />
+        <OutlineButton secondary label="⬇ Export video" flex onPress={() => void exportTape()} />
       </View>
       {saving ? (
         <View style={{ paddingVertical: 16, alignItems: 'center' }}>
           <ActivityIndicator color={theme.accent} />
           <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.muted, marginTop: 8 }}>
-            Uploading your take…
+            Saving…
           </Text>
         </View>
       ) : (
-        <GradientButton
-          label={saved ? 'Saved to library' : 'Save to Library'}
-          onPress={saved ? () => navigation.popToTop() : () => void save()}
-        />
+        <GradientButton label={saved ? '✓ Saved' : 'Save take'} disabled={saved} onPress={() => void save()} style={saved ? { opacity: 0.7 } : undefined} />
       )}
     </Screen>
   );

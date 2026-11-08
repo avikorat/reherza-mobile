@@ -7,6 +7,8 @@ import Screen from '../components/Screen';
 import { BackButton, ProgressBar } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { Billing, Usage } from '../api';
+import { useAuth } from '../AuthContext';
+import { creditsLabel, formatCredits } from '../lib/format';
 import {
   fonts,
   radii,
@@ -22,6 +24,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Billing'>;
 
 export default function BillingScreen({ navigation }: Props) {
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const locked = !!user?.billingLocked;
   const [sub, setSub] = useState<Subscription | null | undefined>(undefined); // undefined = loading
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [credits, setCredits] = useState<CreditStatus | null>(null);
@@ -59,8 +63,10 @@ export default function BillingScreen({ navigation }: Props) {
     );
   };
 
-  const usagePct = usage && usage.charLimit ? Math.min(1, usage.charsUsed / usage.charLimit) : 0;
-  const canCancel = !!sub && sub.status === 'active' && !sub.cancelAtPeriodEnd;
+  const plan = usage?.creditLimitMilli ?? 0;
+  const remaining = usage?.creditsRemainingMilli;
+  const usedPct = plan > 0 && remaining !== undefined ? Math.min(1, Math.max(0, 1 - remaining / plan)) : 0;
+  const canCancel = !locked && !!sub && sub.status === 'active' && !sub.cancelAtPeriodEnd;
 
   return (
     <Screen padded={false}>
@@ -70,7 +76,7 @@ export default function BillingScreen({ navigation }: Props) {
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <BackButton onPress={() => navigation.goBack()} />
-          <Text style={[styles.h1, { color: theme.text }]}>Plan & usage</Text>
+          <Text style={[styles.h1, { color: theme.text }]}>Billing</Text>
         </View>
 
         {/* Current plan card — the palette guide's "Gradient Hero Card": one of
@@ -87,31 +93,32 @@ export default function BillingScreen({ navigation }: Props) {
             <View>
               <Text style={styles.heroEyebrow}>CURRENT PLAN</Text>
               <Text style={styles.heroPlan}>
-                {sub === undefined ? '…' : sub?.planDetails?.name || sub?.plan || 'Free'}
+                {locked ? 'Testing plan' : sub === undefined ? '…' : sub?.planDetails?.name || sub?.plan || 'Free'}
               </Text>
             </View>
           </View>
           <Text style={styles.heroMeta}>
-            {sub?.currentPeriodEnd
+            {locked
+              ? "Reherza is in testing, so it's free and plan changes are turned off for now. Your usage limits are managed by our team — reach out if you need more."
+              : sub?.currentPeriodEnd
               ? `${sub.cancelAtPeriodEnd ? 'Ends' : 'Renews'} ${new Date(sub.currentPeriodEnd).toLocaleDateString()}`
               : 'Free allowance · resets monthly'}
           </Text>
         </LinearGradient>
 
-        {/* Credits */}
-        {usage ? (
+        {/* Credits — the unit the server enforces; never derived from characters. */}
+        {usage && remaining !== undefined ? (
           <View style={{ gap: 9 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.text }}>Voice credits</Text>
+              <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.text }}>Credits</Text>
               <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
-                {usage.charsUsed.toLocaleString()} / {(usage.charLimit || 0).toLocaleString()} chars
+                {creditsLabel(remaining)} left of {formatCredits(plan)} this month
               </Text>
             </View>
-            <ProgressBar progress={usagePct} />
-            <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: theme.muted }}>
-              {usage.analysisLimit != null
-                ? `${usage.analysesUsed} of ${usage.analysisLimit} delivery analyses used this month`
-                : 'Unlimited delivery analyses'}
+            <ProgressBar progress={usedPct} />
+            <Text style={{ fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, color: theme.muted }}>
+              Each credit covers one page of script — its voices and its first analysis included.
+              {usage.purchasedMilli ? ` Plus ${creditsLabel(usage.purchasedMilli)} purchased.` : ''}
             </Text>
           </View>
         ) : null}

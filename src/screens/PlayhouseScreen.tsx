@@ -1,151 +1,129 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import type { CompositeScreenProps } from '@react-navigation/native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
 import { useBottomTabBarHeight, type BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen, { SCREEN_EDGES_TABS } from '../components/Screen';
 import Card from '../components/Card';
-import Badge from '../components/Badge';
+import GradientButton from '../components/GradientButton';
+import { useToast } from '../components/Toast';
+import AccountMenu from '../components/AccountMenu';
 import { useTheme } from '../ThemeContext';
 import { DemoScenes } from '../api';
 import { fonts, radii, palette } from '../theme';
 import type { DemoScene, RootStackParamList, TabParamList } from '../types';
 
 type Props = CompositeScreenProps<
-  BottomTabScreenProps<TabParamList, 'Playhouse'>,
+  BottomTabScreenProps<TabParamList, 'Library'>,
   NativeStackScreenProps<RootStackParamList>
 >;
 
+// Same order as the web's filter row; any genre not listed follows.
+const GENRE_ORDER = ['Drama', 'Comedy', 'Thriller', 'Romance', 'Sitcom', 'Action', 'Voice Acting', 'Audition Monologues', 'TV Scene', 'Film Scene'];
+
+// The web's /playhouse ("Reherza Library").
 export default function PlayhouseScreen({ navigation }: Props) {
   const { theme } = useTheme();
-  // The tab bar floats over the screen, so scroll content has to end above
-  // it. This is the bar's real height (content + the device's bottom inset),
-  // so it can't drift from the navigator's own config.
   const tabBarHeight = useBottomTabBarHeight();
+  const toast = useToast();
   const [scenes, setScenes] = useState<DemoScene[] | null>(null);
-  const [filter, setFilter] = useState('All');
-  const [opening, setOpening] = useState<string | null>(null); // slug being instantiated
-  const [error, setError] = useState<string | null>(null);
+  const [genre, setGenre] = useState('All');
+  const [pending, setPending] = useState<string | null>(null);
 
-  const load = async () => {
-    try {
-      setError(null);
-      setScenes(await DemoScenes.list());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load scenes.');
-      setScenes([]);
-    }
+  useFocusEffect(useCallback(() => { DemoScenes.list().then(setScenes).catch(() => setScenes([])); }, []));
+
+  const genres = useMemo(() => {
+    const present = new Set((scenes ?? []).map((s) => s.genre).filter(Boolean) as string[]);
+    return ['All', ...GENRE_ORDER.filter((g) => present.has(g)), ...[...present].filter((g) => !GENRE_ORDER.includes(g))];
+  }, [scenes]);
+  const filtered = (scenes ?? []).filter((s) => genre === 'All' || s.genre === genre);
+
+  const difficulty: Record<string, { bg: string; fg: string }> = {
+    Beginner: { bg: theme.successBg, fg: theme.success },
+    Intermediate: { bg: theme.warningBg, fg: theme.warning },
+    Advanced: { bg: theme.destructiveBg, fg: theme.destructive },
   };
 
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const genres = ['All', ...new Set((scenes || []).map((s) => s.genre).filter((g): g is string => Boolean(g)))];
-  const list = (scenes || []).filter((s) => filter === 'All' || s.genre === filter);
-
-  const open = async (scene: DemoScene) => {
-    if (opening) return;
-    setOpening(scene.slug);
+  const open = async (s: DemoScene) => {
+    if (pending) return;
+    setPending(s.slug);
     try {
-      const project = await DemoScenes.instantiate(scene.slug);
+      const project = await DemoScenes.instantiate(s.slug);
       navigation.navigate('ScriptDetail', { id: project.id });
-    } catch (e) {
-      Alert.alert('Could not open scene', e instanceof Error ? e.message : 'Unknown error');
+    } catch {
+      toast({ title: "Couldn't open that scene, try again", variant: 'destructive' });
     } finally {
-      setOpening(null);
+      setPending(null);
     }
   };
 
   return (
     <Screen padded={false} edges={SCREEN_EDGES_TABS}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: tabBarHeight + 24, gap: 14 }}
-      >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: tabBarHeight + 24, gap: 14 }}>
         <View>
-          <Text style={[styles.h1, { color: theme.text }]}>Playhouse</Text>
-          <Text style={[styles.sub, { color: theme.muted }]}>Ready-to-rehearse scenes. Pick one and go.</Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.h1, { color: theme.text, flex: 1 }]}>Reherza Library</Text>
+            <AccountMenu />
+          </View>
+          <Text style={{ fontFamily: fonts.regular, fontSize: 13.5, lineHeight: 20, color: theme.muted, marginTop: 4 }}>
+            Ready-to-rehearse scenes across every genre. Pick one and you're acting in seconds, voices and all.
+          </Text>
         </View>
 
-        {scenes === null ? (
-          <View style={{ paddingVertical: 30, alignItems: 'center' }}>
-            <ActivityIndicator color={theme.accent} />
+        {scenes ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {genres.map((g) => {
+              const on = g === genre;
+              return (
+                <TouchableOpacity
+                  key={g}
+                  onPress={() => setGenre(g)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  style={[styles.filter, { backgroundColor: on ? theme.accent : theme.surface, borderColor: on ? theme.accent : theme.border }]}
+                >
+                  <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: on ? palette.white : theme.muted }}>{g}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         ) : (
-          <>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {genres.map((g) => {
-                const active = g === filter;
-                return (
-                  <TouchableOpacity
-                    key={g}
-                    activeOpacity={0.8}
-                    hitSlop={{ top: 6, bottom: 6 }}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    onPress={() => setFilter(g)}
-                    style={[
-                      styles.chip,
-                      active
-                        ? { backgroundColor: theme.accent, borderColor: theme.accent }
-                        : { backgroundColor: theme.surface, borderColor: theme.border },
-                    ]}
-                  >
-                    <Text style={{ fontFamily: active ? fonts.bold : fonts.semibold, fontSize: 12.5, color: active ? palette.white : theme.muted }}>
-                      {g}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            {error ? (
-              <Card>
-                <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.destructive }}>{error}</Text>
-                <TouchableOpacity onPress={load} style={{ marginTop: 8 }}>
-                  <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Retry</Text>
-                </TouchableOpacity>
-              </Card>
-            ) : null}
-
-            {list.map((s) => (
-              <TouchableOpacity key={s.slug} activeOpacity={0.9} onPress={() => open(s)} disabled={Boolean(opening)}>
-                <Card>
-                  <View style={{ flexDirection: 'row', gap: 7, marginBottom: 10 }}>
-                    {/* Genre is a taxonomy, not a status — every genre takes the
-                        same brand tint rather than borrowing success/warning,
-                        which would read as "this scene passed/failed". */}
-                    <Badge variant="soft" label={(s.genre || 'SCENE').toUpperCase()} />
-                    {s.difficulty ? <Badge variant="outline" label={s.difficulty} /> : null}
-                  </View>
-                  <Text style={[styles.cardTitle, { color: theme.text }]}>{s.title}</Text>
-                  <Text style={[styles.blurb, { color: theme.muted }]}>{s.synopsis}</Text>
-                  <View style={styles.footer}>
-                    <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.muted }}>
-                      {s.characterCount} chars · {s.lineCount} lines · {s.estimatedDuration}
-                    </Text>
-                    {opening === s.slug ? (
-                      <ActivityIndicator size="small" color={theme.accent} />
-                    ) : (
-                      <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Open scene →</Text>
-                    )}
-                  </View>
-                </Card>
-              </TouchableOpacity>
-            ))}
-          </>
+          <ActivityIndicator color={theme.accent} style={{ paddingVertical: 24 }} />
         )}
+
+        {filtered.map((s) => {
+          const d = difficulty[s.difficulty || ''] || { bg: theme.surfaceAlt, fg: theme.muted };
+          const busy = pending === s.slug;
+          return (
+            <Card key={s.slug} padding={18} style={{ gap: 10 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={[styles.chip, { backgroundColor: theme.accentBg }]}><Text style={[styles.chipText, { color: theme.accent }]}>{s.genre}</Text></View>
+                {s.difficulty ? <View style={[styles.chip, { backgroundColor: d.bg }]}><Text style={[styles.chipText, { color: d.fg }]}>{s.difficulty}</Text></View> : null}
+              </View>
+              <View>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 16, color: theme.text, marginBottom: 3 }}>{s.title}</Text>
+                <Text numberOfLines={2} style={{ fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, color: theme.muted }}>{s.synopsis}</Text>
+              </View>
+              <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
+                {s.characterCount} char{s.characterCount !== 1 ? 's' : ''}  ·  {s.lineCount} lines{s.estimatedDuration ? `  ·  ${s.estimatedDuration}` : ''}
+              </Text>
+              <GradientButton small label={busy ? 'Setting up…' : 'Open scene'} disabled={!!pending} onPress={() => void open(s)} />
+            </Card>
+          );
+        })}
+
+        {scenes && filtered.length === 0 ? (
+          <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: theme.muted, textAlign: 'center', paddingVertical: 40 }}>No scenes in this genre yet.</Text>
+        ) : null}
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  h1: { fontFamily: fonts.heavy, fontSize: 28, letterSpacing: -0.6, marginTop: 6, marginBottom: 3 },
-  sub: { fontFamily: fonts.regular, fontSize: 13.5 },
-  chip: { paddingHorizontal: 15, height: 38, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: 19, letterSpacing: -0.3, marginBottom: 4 },
-  blurb: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 20, marginBottom: 12 },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  h1: { fontFamily: fonts.heavy, fontSize: 26, letterSpacing: -0.6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filter: { paddingHorizontal: 14, minHeight: 34, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
+  chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radii.pill },
+  chipText: { fontFamily: fonts.semibold, fontSize: 11.5 },
 });

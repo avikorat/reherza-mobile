@@ -7,6 +7,7 @@ import GradientButton from '../components/GradientButton';
 import { BackButton } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
+import { CognitoError } from '../lib/cognito';
 import {
   fonts,
   radii,
@@ -45,7 +46,14 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
       await confirmSignUp(full);
       navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not confirm that code.');
+      setError(
+        e instanceof CognitoError && e.code === 'ExpiredCodeException'
+          ? 'That verification code has expired. Request a new one and try again.'
+          : e instanceof CognitoError
+            ? e.message
+            : // Confirmed, but the follow-on sign-in failed.
+              'Could not sign in — please sign in from the login page.'
+      );
       setBusy(false);
     }
   };
@@ -102,9 +110,9 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
           <Text style={{ fontSize: 30 }}>✉</Text>
         </LinearGradient>
 
-        <Text style={[styles.h1, { color: theme.text }]}>Check your inbox.</Text>
+        <Text style={[styles.h1, { color: theme.text }]}>Check your email</Text>
         <Text style={[styles.sub, { color: theme.muted }]}>
-          We sent a 6-digit code to{'\n'}
+          We sent a code to{'\n'}
           <Text style={{ color: theme.text, fontFamily: fonts.semibold }}>{destination}</Text>
         </Text>
 
@@ -149,7 +157,7 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
         )}
 
         <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 22 }}>
-          <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: theme.muted }}>Didn't get it? </Text>
+          <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: theme.muted }}>Didn't get the code? </Text>
           {resendIn > 0 ? (
             <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.accent }}>
               Resend in 0:{String(resendIn).padStart(2, '0')}
@@ -159,6 +167,15 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
               <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.accent }}>Resend code</Text>
             </TouchableOpacity>
           )}
+        </View>
+        <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, textAlign: 'center', marginTop: 8 }}>
+          Codes can take a minute to arrive — check your spam folder too.
+        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 14 }}>
+          <Text style={{ fontFamily: fonts.regular, fontSize: 13.5, color: theme.muted }}>Wrong email? </Text>
+          <TouchableOpacity onPress={() => navigation.goBack()} accessibilityRole="link">
+            <Text style={{ fontFamily: fonts.semibold, fontSize: 13.5, color: theme.accent }}>Go back</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </Screen>

@@ -1,20 +1,24 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, type CompositeScreenProps } from '@react-navigation/native';
 import { useBottomTabBarHeight, type BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen, { SCREEN_EDGES_TABS } from '../components/Screen';
 import Card from '../components/Card';
-import Badge from '../components/Badge';
 import GradientButton from '../components/GradientButton';
 import OutlineButton from '../components/OutlineButton';
-import { Logo, Avatar, ProgressBar } from '../components/Bits';
+import UsageMeter from '../components/UsageMeter';
+import Onboarding, { useOnboarding } from '../components/Onboarding';
+import { MiniParseProgress } from '../components/ParseProgress';
+import { useToast } from '../components/Toast';
+import { Logo } from '../components/Bits';
+import AccountMenu from '../components/AccountMenu';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
 import { Dashboard, Feedback, Projects, Usage } from '../api';
-import { fonts, radii, stageSurfaces, diagonalStart, diagonalEnd, RED_DOT } from '../theme';
+import { formatScriptTitle, isAllowanceFailure, spokenDialogueCount } from '../lib/format';
+import { fonts, radii } from '../theme';
 import type { Project, RootStackParamList, TabParamList, UsageInfo } from '../types';
 
 type Props = CompositeScreenProps<
@@ -22,39 +26,26 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
-function initialsOf(name?: string): string {
-  return (name || '?')
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
-
 // The feedback prompt is asked at most once per app launch; the server decides
 // whether it is due at all (and stops asking once answered or dismissed).
 let feedbackAsked = false;
 
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
-}
-
+// The web's /dashboard, top to bottom: title and actions, usage meter, stats,
+// the needs-attention band for failed imports, the script cards, and the
+// empty state with the script-format example.
 export default function HomeScreen({ navigation }: Props) {
-  const { theme, toggle } = useTheme();
-  // The tab bar floats over the screen, so scroll content has to end above
-  // it. This is the bar's real height (content + the device's bottom inset),
-  // so it can't drift from the navigator's own config.
+  const { theme } = useTheme();
   const tabBarHeight = useBottomTabBarHeight();
   const { user } = useAuth();
+  const toast = useToast();
+  const onboarding = useOnboarding();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
-  const [stats, setStats] = useState<{ totalSessions: number; totalLinesRehearsed: number } | null>(null);
+  const [stats, setStats] = useState<{ totalProjects: number; totalSessions: number; totalLinesRehearsed: number } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [showAllAttention, setShowAllAttention] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +54,15 @@ export default function HomeScreen({ navigation }: Props) {
       setProjects(p);
       setUsage(u);
       Dashboard.summary().then(setStats).catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load your scripts.');
+      setProjects((prev) => prev ?? []);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
       if (!feedbackAsked) {
         Feedback.eligibility()
           .then((e) => {
@@ -75,196 +75,258 @@ export default function HomeScreen({ navigation }: Props) {
           })
           .catch(() => {});
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load your studio.');
-      setProjects((prev) => prev ?? []);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load();
     }, [load])
   );
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  };
+  // Poll while anything is still parsing, as the web does (4 s).
+  const anyProcessing = (projects || []).some((p) => p.parseStatus === 'processing');
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const id = setInterval(() => { Projects.list().then(setProjects).catch(() => {}); }, 4000);
+    return () => clearInterval(id);
+  }, [anyProcessing]);
 
-  const first = (user?.name || 'Friend').split(' ')[0];
+  const overLimit = !!usage?.exceeded;
+  const newScriptDisabled = !usage || overLimit;
+  const creditsAvailable = !!usage && !usage.exceeded;
   const list = projects || [];
-  const sessions = stats?.totalSessions ?? list.reduce((n, p) => n + (p.sessionCount || 0), 0);
-  const lineCount = stats?.totalLinesRehearsed ?? 0;
-  const inRehearsal = list.filter((p) => (p.sessionCount || 0) > 0).length;
-  const usagePct = usage && usage.charLimit ? Math.min(1, usage.charsUsed / usage.charLimit) : 0;
+  const needsAttention = list.filter((p) => p.parseStatus === 'failed');
+  const grid = list.filter((p) => p.parseStatus !== 'failed');
+  const first = (user?.name || '').split(' ')[0];
 
-  const statusBadge = (p: Project) => {
-    if (p.parseStatus === 'processing') return <Badge variant="soft" label="Parsing…" />;
-    if (p.parseStatus === 'failed') return <Badge variant="destructive" label="Failed" />;
-    return <Badge variant="success" label="● Ready" />;
+  const remove = (p: Project) =>
+    Alert.alert(`Delete "${formatScriptTitle(p.title)}"?`, undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await Projects.remove(p.id);
+            toast({ title: 'Script deleted' });
+            void load();
+          } catch (e) {
+            toast({ title: e instanceof Error ? e.message : "Couldn't delete that script.", variant: 'destructive' });
+          }
+        },
+      },
+    ]);
+
+  const retry = async (id: string) => {
+    setRetrying(true);
+    try {
+      await Projects.reprocess(id);
+      toast({ title: "Reprocessing… we'll parse it again in the background." });
+      void load();
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Couldn't start reprocessing. Please try again.", variant: 'destructive' });
+      Usage.me().then(setUsage).catch(() => {});
+    } finally {
+      setRetrying(false);
+    }
   };
+
+  const newScript = () =>
+    newScriptDisabled
+      ? toast({ title: overLimit ? 'You are out of credits for this month' : 'Checking your credits…' })
+      : navigation.navigate('NewScript');
+
+  const shownAttention = showAllAttention ? needsAttention : needsAttention.slice(0, 3);
 
   return (
     <Screen padded={false} edges={SCREEN_EDGES_TABS}>
       <View style={styles.topbar}>
         <Logo size={17} />
-        {/* Tap the avatar to switch Light / Stage theme (Appearance in settings). */}
-        <TouchableOpacity onPress={toggle} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Switch theme">
-          <Avatar initials={initialsOf(user?.name)} size={40} />
-        </TouchableOpacity>
+        <AccountMenu />
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: tabBarHeight + 24, gap: 16 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: tabBarHeight + 24, gap: 16 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={theme.accent} />}
       >
         <View>
-          <Text style={[styles.greet, { color: theme.muted }]}>{greeting()}, {first}</Text>
-          <Text style={[styles.title, { color: theme.text }]}>{first}'s Studio</Text>
-          <Text style={[styles.sub, { color: theme.muted }]}>
-            {list.length} script{list.length === 1 ? '' : 's'} · {inRehearsal} in rehearsal
-          </Text>
+          <Text style={[styles.title, { color: theme.text }]}>My Dashboard</Text>
+          <Text style={[styles.sub, { color: theme.muted }]}>Welcome back{first ? `, ${first}` : ''}. Ready to rehearse?</Text>
         </View>
+
+        {/* Two secondaries split one row; the primary takes the row below, as
+            the web lays them out on a phone. */}
+        <View style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <OutlineButton icon="clock" label="History" small flex onPress={() => navigation.navigate('Main', { screen: 'History' })} />
+            <OutlineButton icon="book-open" label="Reherza Library" small flex onPress={() => navigation.navigate('Main', { screen: 'Library' })} />
+          </View>
+          <GradientButton label="+ New Script" disabled={newScriptDisabled} onPress={newScript} style={newScriptDisabled ? { opacity: 0.6 } : undefined} />
+        </View>
+
+        <UsageMeter usage={usage} />
 
         {error ? (
           <Card>
-            {/* A load failure is `destructive`, not brand — the palette keeps
-                failing states outside the brand ramp on purpose. */}
             <Text style={{ fontFamily: fonts.semibold, fontSize: 13, color: theme.destructive }}>{error}</Text>
-            <TouchableOpacity onPress={load} style={{ marginTop: 8 }}>
-              <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Retry</Text>
+            <TouchableOpacity onPress={load} style={{ marginTop: 8, minHeight: 32, justifyContent: 'center' }} accessibilityRole="button">
+              <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: theme.accent }}>Try again</Text>
             </TouchableOpacity>
           </Card>
         ) : null}
 
-        {usage ? (
-          <Card>
-            <View style={styles.rowBetween}>
-              <Text style={[styles.cardLabel, { color: theme.text }]}>Voice credits</Text>
-              <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
-                <Text style={{ fontFamily: fonts.bold, fontSize: 15, color: theme.text }}>
-                  {Math.round(usage.charsUsed / 1000)}k
-                </Text>{' '}
-                / {Math.round((usage.charLimit || 0) / 1000)}k chars
-              </Text>
-            </View>
-            <View style={{ marginTop: 11 }}>
-              <ProgressBar progress={usagePct} />
-            </View>
-            <Text style={{ fontFamily: fonts.regular, fontSize: 11, color: theme.muted, marginTop: 9 }}>
-              {usage.analysisLimit != null
-                ? `${usage.analysesUsed} / ${usage.analysisLimit} analyses used · `
-                : ''}
-              <Text
-                style={{ color: theme.accent, fontFamily: fonts.semibold }}
-                onPress={() => navigation.navigate('Billing')}
-              >
-                {usage.exceeded ? 'Limit reached · details' : 'Details'}
-              </Text>
-            </Text>
-          </Card>
-        ) : null}
-
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {[
-            { n: String(list.length), l: 'SCRIPTS' },
-            { n: String(sessions), l: 'SESSIONS' },
-            { n: lineCount.toLocaleString(), l: 'LINES RUN' },
-          ].map((s) => (
-            <Card key={s.l} style={{ flex: 1 }} padding={13}>
-              <Text style={[styles.stat, { color: theme.text }]} maxFontSizeMultiplier={1.3}>{s.n}</Text>
-              <Text style={[styles.statLabel, { color: theme.muted }]} numberOfLines={1} maxFontSizeMultiplier={1.15}>{s.l}</Text>
-            </Card>
-          ))}
-        </View>
-
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <GradientButton label="+ New Script" small style={{ flex: 1 }} onPress={() => navigation.navigate('NewScript')} />
-          <OutlineButton icon="book-open" label="Playhouse" small flex onPress={() => navigation.navigate('Playhouse')} />
-        </View>
-
-        <View style={[styles.rowBetween, { marginTop: 2 }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Your scripts</Text>
-        </View>
-
-        {projects === null ? (
-          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-            <ActivityIndicator color={theme.accent} />
-          </View>
-        ) : list.length === 0 ? (
-          <Card>
-            <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.text, marginBottom: 4 }}>
-              No scripts yet
-            </Text>
-            <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: theme.muted, lineHeight: 19 }}>
-              Import a script or grab a ready-made scene from the Playhouse to start rehearsing.
-            </Text>
-          </Card>
-        ) : (
-          <View style={{ gap: 10 }}>
-            {list.map((p) => (
-              <TouchableOpacity
-                key={p.id}
-                activeOpacity={0.85}
-                onPress={() =>
-                  p.parseStatus === 'processing'
-                    ? navigation.navigate('Parsing', { id: p.id })
-                    : navigation.navigate('ScriptDetail', { id: p.id })
-                }
-              >
-                <Card style={styles.scriptRow} padding={14}>
-                  {/* Script "spine": the stage-dark surfaces from the landing
-                      page, so the cover reads as a poster rather than a chip. */}
-                  <LinearGradient
-                    colors={[stageSurfaces.card, stageSurfaces.bg]}
-                    start={diagonalStart}
-                    end={diagonalEnd}
-                    style={styles.cover}
-                  >
-                    <View style={styles.coverDot} />
-                  </LinearGradient>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.scriptTitle, { color: theme.text }]} numberOfLines={1}>{p.title}</Text>
-                    <Text style={{ fontFamily: fonts.regular, fontSize: 12.5, color: theme.muted, marginTop: 1 }} numberOfLines={1}>
-                      {p.selectedCharacters?.length || p.selectedCharacter
-                        ? `as ${(p.selectedCharacters || [p.selectedCharacter]).join(', ')} · `
-                        : ''}
-                      {(p.speakers || []).length} roles
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 5 }}>
-                    {statusBadge(p)}
-                    <Feather name="chevron-right" size={18} color={theme.muted} />
-                  </View>
-                </Card>
-              </TouchableOpacity>
+        {stats && list.length > 0 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 22, rowGap: 6 }}>
+            {[
+              { label: 'Scripts', value: list.length },
+              { label: 'Sessions', value: stats.totalSessions },
+              { label: 'Lines rehearsed', value: stats.totalLinesRehearsed },
+            ].map((s) => (
+              <View key={s.label} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 7 }}>
+                <Text style={{ fontFamily: fonts.heavy, fontSize: 22, color: theme.text }}>{s.value}</Text>
+                <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: theme.muted }}>{s.label}</Text>
+              </View>
             ))}
           </View>
+        ) : null}
+
+        {projects === null ? (
+          <ActivityIndicator color={theme.accent} style={{ paddingVertical: 24 }} />
+        ) : list.length === 0 ? (
+          <Card padding={24} style={{ alignItems: 'center' }}>
+            <View style={[styles.emptyIcon, { backgroundColor: theme.accentBg }]}>
+              <Feather name="book-open" size={26} color={theme.accent} />
+            </View>
+            <Text style={{ fontFamily: fonts.heavy, fontSize: 19, color: theme.text, marginBottom: 6 }}>Your studio is empty</Text>
+            <Text style={{ fontFamily: fonts.regular, fontSize: 13.5, lineHeight: 20, color: theme.muted, textAlign: 'center', marginBottom: 18 }}>
+              Upload a script, choose your character, and start rehearsing with your scene partner.
+            </Text>
+            <View style={{ gap: 10, alignSelf: 'stretch' }}>
+              <GradientButton label="Browse the Reherza Library" onPress={() => navigation.navigate('Main', { screen: 'Library' })} />
+              <OutlineButton label="Upload your own script" onPress={newScript} />
+            </View>
+            <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginTop: 14, textAlign: 'center' }}>
+              No script? Start with a ready-made scene from the Reherza Library.
+            </Text>
+            <View style={{ alignSelf: 'stretch', borderTopWidth: 1, borderTopColor: theme.border, marginTop: 20, paddingTop: 18 }}>
+              <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted, marginBottom: 10, textAlign: 'center' }}>Format your script like this:</Text>
+              <View style={{ backgroundColor: theme.surfaceAlt, borderRadius: 10, padding: 12, gap: 3 }}>
+                {[['MAYA', "I thought you weren't coming."], ['LEO', "I almost didn't."], ['MAYA', 'Then why are you here?']].map(([who, line], i) => (
+                  <Text key={i} style={{ fontFamily: fonts.medium, fontSize: 12.5, color: theme.text, opacity: 0.8 }}>
+                    <Text style={{ fontFamily: fonts.bold, color: theme.accent }}>{who}:</Text> {line}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          </Card>
+        ) : (
+          <>
+            {needsAttention.length ? (
+              <Card padding={16} style={{ borderLeftWidth: 3, borderLeftColor: theme.warningFill }}>
+                <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.warning, marginBottom: 2 }}>
+                  {needsAttention.length} script{needsAttention.length === 1 ? ' needs' : 's need'} your attention
+                </Text>
+                {shownAttention.map((p, i) => {
+                  const limitStopped = isAllowanceFailure(p.parseErrorCode);
+                  const canReprocess = limitStopped && creditsAvailable;
+                  return (
+                    <View key={p.id} style={[{ paddingVertical: 12, gap: 10 }, i > 0 && { borderTopWidth: 1, borderTopColor: theme.divider }]}>
+                      <TouchableOpacity onPress={() => navigation.navigate('ScriptDetail', { id: p.id })} accessibilityRole="link">
+                        <Text numberOfLines={1} style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.text }}>{formatScriptTitle(p.title)}</Text>
+                        <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
+                          {limitStopped
+                            ? canReprocess ? 'Parsing paused for credits — you have enough now' : 'Parsing paused — you ran out of credits'
+                            : "We couldn't read this file — it may be scanned or image-only"}
+                        </Text>
+                      </TouchableOpacity>
+                      {limitStopped && !canReprocess ? null : (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <GradientButton small label={retrying ? 'Starting…' : canReprocess ? 'Reprocess' : 'Try again'} disabled={retrying} onPress={() => void retry(p.id)} style={{ flex: 1 }} />
+                          {!canReprocess ? <OutlineButton small flex label="Enter lines" onPress={() => navigation.navigate('ScriptEditor', { id: p.id })} /> : null}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+                {needsAttention.length > shownAttention.length ? (
+                  <TouchableOpacity onPress={() => setShowAllAttention(true)} style={{ borderTopWidth: 1, borderTopColor: theme.divider, paddingTop: 10, alignItems: 'center' }} accessibilityRole="button">
+                    <Text style={{ fontFamily: fonts.bold, fontSize: 12, color: theme.accent }}>Show {needsAttention.length - shownAttention.length} more</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </Card>
+            ) : null}
+
+            {grid.map((p) => {
+              const processing = p.parseStatus === 'processing';
+              const speakers = p.speakers || [];
+              const hasCharacter = !!(p.selectedCharacters?.length || p.selectedCharacter);
+              const title = formatScriptTitle(p.title);
+              return (
+                <Card key={p.id} padding={18} style={{ gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => remove(p)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete ${title}`}
+                    hitSlop={8}
+                    style={styles.delete}
+                  >
+                    <Text style={{ fontSize: 18, lineHeight: 20, color: theme.muted }}>×</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => navigation.navigate('ScriptDetail', { id: p.id })} accessibilityRole="link" activeOpacity={0.8}>
+                    <Text numberOfLines={2} style={{ fontFamily: fonts.bold, fontSize: 16, lineHeight: 21, color: theme.text, paddingRight: 28, marginBottom: 6 }}>{title}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                      {processing ? (
+                        <View style={[styles.chip, { backgroundColor: theme.warningBg }]}>
+                          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.warning }} />
+                          <Text style={[styles.chipText, { color: theme.warning }]}>Processing…</Text>
+                        </View>
+                      ) : (
+                        <>
+                          {hasCharacter ? (
+                            <View style={[styles.chip, { backgroundColor: theme.accentBg }]}>
+                              <Text style={[styles.chipText, { color: theme.accent }]}>
+                                {(p.selectedCharacters?.length ?? 0) > 1 ? p.selectedCharacters!.join(' & ') : p.selectedCharacters?.[0] || p.selectedCharacter}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
+                            {speakers.length} char{speakers.length !== 1 ? 's' : ''} · {spokenDialogueCount(p.parsedLines)} lines
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                  {processing ? <MiniParseProgress startedAt={p.parseStartedAt} /> : null}
+                  {!processing && (p.sessionCount ?? 0) > 0 ? (
+                    <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'History' })} accessibilityRole="link" style={{ alignSelf: 'flex-start', minHeight: 28, justifyContent: 'center' }}>
+                      <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: theme.muted }}>
+                        {p.sessionCount} session{p.sessionCount !== 1 ? 's' : ''} · view history
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {processing ? (
+                    <OutlineButton small label="Parsing…" onPress={undefined} style={{ opacity: 0.6 }} />
+                  ) : !hasCharacter ? (
+                    <OutlineButton small label="Set up" onPress={() => navigation.navigate('ScriptDetail', { id: p.id })} />
+                  ) : null}
+                </Card>
+              );
+            })}
+          </>
         )}
+
+        <TouchableOpacity onPress={onboarding.reopen} accessibilityRole="button" style={{ alignSelf: 'center', minHeight: 44, justifyContent: 'center' }}>
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>How it works</Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      <Onboarding open={onboarding.open} onClose={onboarding.dismiss} />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  topbar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 24, paddingVertical: 12,
-  },
-  greet: { fontFamily: fonts.regular, fontSize: 14, marginBottom: 2 },
-  // Headings track tight (-0.01em … -0.02em), as `h1-h4` do on the web.
-  title: { fontFamily: fonts.heavy, fontSize: 28, letterSpacing: -0.6 },
-  sub: { fontFamily: fonts.regular, fontSize: 13, marginTop: 4 },
-  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardLabel: { fontFamily: fonts.bold, fontSize: 13 },
-  stat: { fontFamily: fonts.heavy, fontSize: 24, letterSpacing: -0.5, textAlign: 'center' },
-  statLabel: { fontFamily: fonts.semibold, fontSize: 10.5, letterSpacing: 0.4, textAlign: 'center', marginTop: 1 },
-  sectionTitle: { fontFamily: fonts.bold, fontSize: 15 },
-  scriptRow: { flexDirection: 'row', alignItems: 'center', gap: 13 },
-  cover: { width: 44, height: 56, borderRadius: radii.control, justifyContent: 'flex-end', padding: 6 },
-  coverDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: RED_DOT },
-  scriptTitle: { fontFamily: fonts.bold, fontSize: 15 },
+  topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 10 },
+  title: { fontFamily: fonts.heavy, fontSize: 27, letterSpacing: -0.6 },
+  sub: { fontFamily: fonts.regular, fontSize: 13.5, marginTop: 4 },
+  emptyIcon: { width: 64, height: 64, borderRadius: radii.cardSm, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radii.pill },
+  chipText: { fontFamily: fonts.semibold, fontSize: 11.5 },
+  delete: { position: 'absolute', top: 6, right: 6, zIndex: 1, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18 },
 });

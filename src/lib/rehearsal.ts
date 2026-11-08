@@ -3,6 +3,7 @@
 // (wordDiff). No React Native imports, so `node dev/check-rehearsal.ts` can
 // exercise it.
 import type { DeliveryScores, ParsedLine, PlayableLine } from '../types';
+import type { PrepLine } from '../api';
 
 // ── Sequence ──────────────────────────────────────────────────────────────
 
@@ -185,3 +186,30 @@ export const DELIVERY_PARAMS: Array<{ key: keyof DeliveryScores; label: string; 
 ];
 
 export const paramLabel = (key: string) => DELIVERY_PARAMS.find((p) => p.key === key)?.short || key;
+
+// The web's buildPrepLines: the AI-spoken lines of a scene, each with its
+// neighbours as context, in the shape /tts/preflight and /tts/pregenerate take.
+export function buildPrepLines(
+  ordered: ParsedLine[],
+  isAi: (line: ParsedLine) => boolean,
+  voiceOf: (speaker: string) => string
+): PrepLine[] {
+  const out: PrepLine[] = [];
+  ordered.forEach((line, i) => {
+    if (!isAi(line)) return;
+    const prev = ordered[i - 1];
+    const next = ordered[i + 1];
+    out.push({
+      text: line.text,
+      voiceId: voiceOf(line.speaker),
+      speaker: line.speaker,
+      contextBefore: prev ? `${prev.speaker}: ${prev.text}` : undefined,
+      contextAfter: next ? `${next.speaker}: ${next.text}` : undefined,
+      action: [line.action, line.deliveryNote].filter((v) => v?.trim()).join('; ') || undefined,
+      emotion: line.emotion,
+      intensity: line.intensity,
+      audioTags: line.audioTags,
+    });
+  });
+  return out;
+}

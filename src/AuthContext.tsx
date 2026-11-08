@@ -22,7 +22,8 @@ interface AuthContextValue {
   user: User | null;
   restoring: boolean;
   signIn: (email: string, password: string) => Promise<User>;
-  signUp: (first: string, last: string, email: string, password: string) => Promise<SignUpResult>;
+  /** `phone` is E.164 ("+14155550123"), as the web's form sends it. */
+  signUp: (first: string, last: string, email: string, password: string, phone?: string) => Promise<SignUpResult>;
   /** Finish a pending sign-up with the emailed code, then sign in. */
   confirmSignUp: (code: string) => Promise<User>;
   /** Re-send the confirmation code for the pending sign-up. */
@@ -136,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Sign-up now creates a COGNITO user; the backend account is minted from
       // the resulting ID token by cognito-sync, once the email is confirmed.
-      signUp: async (first, last, rawEmail, password) => {
+      signUp: async (first, last, rawEmail, password, phone) => {
         const email = canonicalEmail(rawEmail);
         // A build with no Cognito configured (local dev, or before the pool env
         // vars are set) still has to be able to create an account, so it takes
@@ -155,7 +156,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email,
           password,
           first.trim(),
-          last.trim()
+          last.trim(),
+          phone
         );
         setPending({ email, password });
         // Most pools email a code; one configured to auto-confirm does not, so

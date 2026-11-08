@@ -6,6 +6,8 @@ import Field from '../components/Field';
 import GradientButton from '../components/GradientButton';
 import GoogleMark from '../components/GoogleMark';
 import { Logo } from '../components/Bits';
+import Card from '../components/Card';
+import { useToast } from '../components/Toast';
 import { useTheme } from '../ThemeContext';
 import { useAuth } from '../AuthContext';
 import { useSocialAuth } from '../lib/socialAuth';
@@ -22,6 +24,7 @@ const UNCONFIGURED_MESSAGE =
 export default function SignInScreen({ navigation }: Props) {
   const { theme } = useTheme();
   const { signIn, signInWithCognito } = useAuth();
+  const toast = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -63,103 +66,87 @@ export default function SignInScreen({ navigation }: Props) {
       // password it needs is in memory, not in the route params.
       if (e instanceof CognitoError && e.code === 'UserNotConfirmedException') {
         setBusy(false);
+        toast({ title: 'Please verify your email first — check your inbox for the code.', variant: 'destructive' });
         navigation.navigate('VerifyEmail', {});
         return;
       }
-      setError(e instanceof Error ? e.message : 'Sign-in failed.');
+      setError(e instanceof CognitoError && e.code === 'NotAuthorizedException' ? 'Invalid email or password' : e instanceof Error ? e.message : 'Invalid email or password');
     } finally {
       setBusy(false);
     }
   };
 
+  // The web's /login layout: brand, heading, then one card — Google first,
+  // "or", email + password — and the sign-up link under it.
   return (
     <Screen keyboardAvoiding>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{ paddingVertical: 32 }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <View style={{ alignItems: 'center', marginTop: 24 }}>
-          <Logo size={21} />
+        <View style={{ alignItems: 'center', marginBottom: 32 }}>
+          <Logo size={22} />
+          <Text style={[styles.h1, { color: theme.text }]}>Welcome back</Text>
+          <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: theme.muted, marginTop: 4 }}>Sign in to continue your rehearsal</Text>
         </View>
 
-        <Text style={[styles.h1, { color: theme.text }]}>Welcome{'\n'}back.</Text>
-        <Text style={[styles.sub, { color: theme.muted }]}>
-          Your scene partner is warmed up and waiting in the wings.
-        </Text>
-
-        <Field label="EMAIL" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" style={{ marginBottom: 16 }} />
-        <Field label="PASSWORD" value={password} onChangeText={setPassword} secure showToggle placeholder="Your password" />
-
-        <TouchableOpacity onPress={() => navigation.navigate('ResetPassword', { email })} style={{ alignSelf: 'flex-end', marginTop: 9, marginBottom: 10 }}>
-          <Text style={[styles.link, { color: theme.accent }]}>Forgot password?</Text>
-        </TouchableOpacity>
-
-        {error ? (
-          <Text style={[styles.error, { color: theme.destructive }]}>{error}</Text>
-        ) : (
-          <View style={{ height: 12 }} />
-        )}
-
-        {busy ? (
-          <View style={styles.busy}>
-            <ActivityIndicator color={theme.accent} />
-          </View>
-        ) : (
-          <GradientButton label="Sign In" onPress={submit} />
-        )}
-
-        {/* Release builds hide social sign-in unless it is configured, and on
-            iOS Google is only offered alongside Sign in with Apple (App Store 4.8). */}
-        {showSocial ? (
-          <>
-          <View style={styles.divider}>
-            <View style={[styles.rule, { backgroundColor: theme.borderStrong }]} />
-            <Text style={[styles.or, { color: theme.muted }]}>or</Text>
-            <View style={[styles.rule, { backgroundColor: theme.borderStrong }]} />
-          </View>
-
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => (google.available ? google.prompt() : Alert.alert('Google sign-in', UNCONFIGURED_MESSAGE))}
-            style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
-          >
-            {google.busy ? (
-              <ActivityIndicator size="small" color={theme.accent} />
-            ) : (
-              <>
-                <GoogleMark size={17} />
-                <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.text }}>Continue with Google</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {Platform.OS === 'ios' ? (
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => (apple.available ? apple.prompt() : Alert.alert('Sign in with Apple', UNCONFIGURED_MESSAGE))}
-              style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent', marginTop: 10 }]}
-            >
-              {apple.busy ? (
-                <ActivityIndicator size="small" color={theme.key === 'stage' ? '#000' : '#fff'} />
-              ) : (
-                <>
-                  <Text style={{ fontSize: 17, color: theme.key === 'stage' ? '#000' : '#fff' }}></Text>
-                  <Text style={{ fontFamily: fonts.semibold, fontSize: 15, color: theme.key === 'stage' ? '#000' : '#fff' }}>
-                    Sign in with Apple
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
+        <Card padding={22} style={{ gap: 14 }}>
+          {showSocial ? (
+            <>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                onPress={() => (google.available ? google.prompt() : setError(UNCONFIGURED_MESSAGE))}
+                style={[styles.social, { borderColor: theme.border, backgroundColor: theme.surface }]}
+              >
+                {google.busy ? <ActivityIndicator size="small" color={theme.accent} /> : (
+                  <>
+                    <GoogleMark size={17} />
+                    <Text style={{ fontFamily: fonts.semibold, fontSize: 14.5, color: theme.text }}>Continue with Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              {Platform.OS === 'ios' ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  onPress={() => (apple.available ? apple.prompt() : setError(UNCONFIGURED_MESSAGE))}
+                  style={[styles.social, { backgroundColor: theme.key === 'stage' ? '#fff' : '#000', borderColor: 'transparent' }]}
+                >
+                  {apple.busy ? <ActivityIndicator size="small" color={theme.key === 'stage' ? '#000' : '#fff'} /> : (
+                    <Text style={{ fontFamily: fonts.semibold, fontSize: 14.5, color: theme.key === 'stage' ? '#000' : '#fff' }}> Sign in with Apple</Text>
+                  )}
+                </TouchableOpacity>
+              ) : null}
+              <View style={styles.divider}>
+                <View style={[styles.rule, { backgroundColor: theme.border }]} />
+                <Text style={[styles.or, { color: theme.muted }]}>or</Text>
+                <View style={[styles.rule, { backgroundColor: theme.border }]} />
+              </View>
+            </>
           ) : null}
-          </>
-        ) : null}
+
+          <Field label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
+          <View>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -22, zIndex: 1 }}>
+              <TouchableOpacity onPress={() => navigation.navigate('ResetPassword', { email })} accessibilityRole="link" hitSlop={8}>
+                <Text style={{ fontFamily: fonts.medium, fontSize: 12, color: theme.muted }}>Forgot password?</Text>
+              </TouchableOpacity>
+            </View>
+            <Field label="Password" value={password} onChangeText={setPassword} secure showToggle placeholder="••••••••" />
+          </View>
+
+          {error ? <Text style={[styles.error, { color: theme.destructive }]}>{error}</Text> : null}
+
+          <GradientButton label={busy ? 'Signing in…' : 'Sign In'} disabled={busy} onPress={submit} />
+        </Card>
 
         <View style={styles.switchRow}>
-          <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: theme.muted }}>New to Reherza? </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('CreateAccount')}>
-            <Text style={{ fontFamily: fonts.bold, fontSize: 14, color: theme.accent }}>Create account</Text>
+          <Text style={{ fontFamily: fonts.regular, fontSize: 14, color: theme.muted }}>No account? </Text>
+          <TouchableOpacity onPress={() => navigation.navigate('CreateAccount')} accessibilityRole="link">
+            <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: theme.accent }}>Sign up</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -168,23 +155,11 @@ export default function SignInScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  h1: { fontFamily: fonts.heavy, fontSize: 34, letterSpacing: -0.8, lineHeight: 38, marginTop: 40, marginBottom: 8 },
-  sub: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 22, marginBottom: 30 },
-  link: { fontFamily: fonts.semibold, fontSize: 13 },
-  error: { fontFamily: fonts.semibold, fontSize: 13, marginBottom: 12, textAlign: 'center' },
-  busy: { paddingVertical: 16, alignItems: 'center' },
-  divider: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 18 },
+  h1: { fontFamily: fonts.heavy, fontSize: 24, letterSpacing: -0.5, marginTop: 18 },
+  error: { fontFamily: fonts.semibold, fontSize: 13, textAlign: 'center' },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rule: { flex: 1, height: 1 },
   or: { fontFamily: fonts.regular, fontSize: 12 },
-  social: {
-    flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderRadius: radii.pill, paddingVertical: 15,
-  },
-  // Sits with the sign-in options rather than at the foot of the screen. The
-  // gap is wider than the spacing inside the group above it, so it reads as a
-  // separate step without needing a rule to say so.
-  switchRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    marginTop: 30, paddingBottom: 8,
-  },
+  social: { flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radii.pill, minHeight: 46 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 20 },
 });
