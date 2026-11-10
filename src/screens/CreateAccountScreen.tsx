@@ -15,7 +15,7 @@ import { CognitoError } from '../lib/cognito';
 import { useSocialAuth } from '../lib/socialAuth';
 import { LEGAL_DOCUMENTS } from '../legal';
 import { toE164 } from '../lib/format';
-import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY, controlPill } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateAccount'>;
@@ -242,7 +242,7 @@ export default function CreateAccountScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   h1: { fontFamily: fonts.heavy, fontSize: 24, letterSpacing: -0.5, marginTop: 18 },
   fieldError: { fontFamily: fonts.medium, fontSize: 12, marginTop: 4 },
-  social: { flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radii.pill, minHeight: 46 },
+  social: { ...controlPill, minHeight: 46, borderWidth: 1 },
   divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rule: { flex: 1, height: 1 },
   consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },

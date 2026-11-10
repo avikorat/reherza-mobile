@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Modal, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Modal, ScrollView, Animated } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -11,7 +11,8 @@ import { Projects, Tts, Voices, playableLines } from '../api';
 import { cacheClip, leaveRehearsalAudioMode, playClip, stopPlayback } from '../lib/audio';
 import { buildPrepLines, estimateDuration } from '../lib/rehearsal';
 import { explainPermission, openSettingsForPermission } from '../lib/permissions';
-import { fonts, radii, palette, stageSurfaces, RED_DOT, PRESS_OPACITY } from '../theme';
+import { useReduceMotion } from '../lib/motion';
+import { fonts, radii, palette, stageSurfaces, RED_DOT, PRESS_OPACITY, controlChip, controlPill } from '../theme';
 import type { PlayableLine, Project, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Studio'>;
@@ -22,6 +23,7 @@ type Stage = null | 'checking' | 'camera' | 'voices';
 type CueMode = 'full' | 'cue' | 'hide';
 
 const hash = (s: string) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (ms: number) => { const s = Math.floor(ms / 1000); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 
 // The web's Studio in self-tape mode: credits check → camera → the partner's
@@ -29,6 +31,12 @@ const fmt = (ms: number) => { const s = Math.floor(ms / 1000); return `${String(
 // partner reads every other role. Your lines advance with "Next line" — the
 // camera owns the microphone while it records, so the web's silence detection
 // isn't available here.
+//
+// Opening Reading aids pauses the scene AND the recording, as the web does;
+// closing them leaves a Resume button, so nothing moves until the actor is
+// ready. Flipping the camera mid-take ends that recording (the camera has to
+// rebind), so — like the web when a take can't continue — it starts a new take
+// from the current line after a fresh count-in.
 export default function StudioScreen({ navigation, route }: Props) {
   const projectId = route.params?.id;
   const countdownSec = [0, 3, 5, 10].includes(route.params?.countdown ?? -1) ? route.params!.countdown! : 3;
@@ -46,7 +54,7 @@ export default function StudioScreen({ navigation, route }: Props) {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState<Phase>('idle');
-  const [recording, setRecording] = useState(false);
+  const [recording, setRecordingState] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   // Reading aids — they change how the script looks, never the recording.
   const [aidsOpen, setAidsOpen] = useState(false);
@@ -65,6 +73,18 @@ export default function StudioScreen({ navigation, route }: Props) {
   const discard = useRef(false);
   const alive = useRef(true);
   const setPh = (p: Phase) => { phaseRef.current = p; setPhase(p); };
+  const recordingRef = useRef(false);
+  const setRecording = (r: boolean) => { recordingRef.current = r; setRecordingState(r); };
+  // Bumped per recording: a take ended by a flip resolves late and is ignored.
+  const recToken = useRef(0);
+  // Paused time is cut from the take's clock so the timer matches the video.
+  const recPaused = useRef(false);
+  const pausedAt = useRef(0);
+  const pausedTotal = useRef(0);
+  const takeMs = () => Date.now() - startedAt.current - pausedTotal.current - (recPaused.current ? Date.now() - pausedAt.current : 0);
+  const aidsOpenRef = useRef(false);
+  const rollFrom = useRef(0);
+  const insets = useSafeAreaInsets();
 
   const granted = !!(camPerm?.granted && micPerm?.granted);
 
@@ -177,37 +197,46 @@ export default function StudioScreen({ navigation, route }: Props) {
     if (stage !== null || !granted || !cameraReady || startedRef.current) return;
     startedRef.current = true;
     void (async () => {
+      // The count-in holds while Reading aids are open.
+      const waitAids = async () => { while (aidsOpenRef.current && alive.current) await sleep(200); };
       for (let n = countdownSec; n > 0 && alive.current; n--) {
+        await waitAids();
         setCountdown(n);
-        await new Promise((r) => setTimeout(r, 1000));
+        await sleep(1000);
       }
+      await waitAids();
       setCountdown(null);
       if (!alive.current) return;
       void record();
-      run(0);
+      run(rollFrom.current);
     })();
   }, [stage, granted, cameraReady]);
 
   const record = async () => {
     if (!cameraRef.current) return;
+    const token = ++recToken.current;
     setRecording(true);
     startedAt.current = Date.now();
+    pausedTotal.current = 0;
+    recPaused.current = false;
+    setElapsed(0);
     try {
       const video = await cameraRef.current.recordAsync({ maxDuration: 600 });
+      if (token !== recToken.current) return;
       setRecording(false);
       if (!video?.uri || discard.current || !alive.current) return;
       if (skipped.current.length) {
         toast({ title: `${skipped.current.length} line${skipped.current.length === 1 ? '' : 's'} couldn't be voiced`, description: 'Your scene partner skipped them so the take could keep running.', variant: 'destructive' });
       }
-      navigation.replace('TakeReview', { id: projectId, uri: video.uri, durationMs: Math.max(1000, Date.now() - startedAt.current) });
+      navigation.replace('TakeReview', { id: projectId, uri: video.uri, durationMs: Math.max(1000, takeMs()) });
     } catch {
-      setRecording(false);
+      if (token === recToken.current) setRecording(false);
     }
   };
 
   useEffect(() => {
     if (!recording) return;
-    const id = setInterval(() => setElapsed(Date.now() - startedAt.current), 250);
+    const id = setInterval(() => setElapsed(takeMs()), 250);
     return () => clearInterval(id);
   }, [recording]);
 
@@ -227,8 +256,53 @@ export default function StudioScreen({ navigation, route }: Props) {
   };
 
   const nextLine = () => { if (phaseRef.current === 'user-turn') run(stepRef.current + 1); };
-  const pause = () => { void stopPlayback(); setPh('paused'); };
-  const resume = () => run(stepRef.current);
+  // Pause stops the partner, holds the line, and pauses the recording itself
+  // where the camera supports it (Android; iOS 18+).
+  const pause = () => {
+    const ph = phaseRef.current;
+    if (ph === 'idle' || ph === 'done' || ph === 'paused') return;
+    void stopPlayback();
+    setPh('paused');
+    if (!recordingRef.current || recPaused.current) return;
+    let canToggle = false;
+    try { canToggle = !!cameraRef.current?.getSupportedFeatures().toggleRecordingAsyncAvailable; } catch {}
+    if (!canToggle) return;
+    recPaused.current = true;
+    pausedAt.current = Date.now();
+    cameraRef.current?.toggleRecordingAsync().catch(() => { recPaused.current = false; });
+  };
+  const resume = () => {
+    if (recPaused.current) {
+      pausedTotal.current += Date.now() - pausedAt.current;
+      recPaused.current = false;
+      cameraRef.current?.toggleRecordingAsync().catch(() => {});
+    }
+    run(stepRef.current);
+  };
+  const openAids = () => { aidsOpenRef.current = true; setAidsOpen(true); pause(); };
+  const closeAids = () => { aidsOpenRef.current = false; setAidsOpen(false); };
+
+  const flip = () => {
+    const toggle = () => { setCameraReady(false); setFacing((f) => (f === 'front' ? 'back' : 'front')); };
+    if (countdown !== null) return; // the take is about to start recording
+    if (!recordingRef.current) { toggle(); return; }
+    pause();
+    Alert.alert('Flip camera?', 'Switching cameras ends this recording. A new take starts from this line after a short count-in.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Flip & restart',
+        onPress: () => {
+          recToken.current += 1;
+          cameraRef.current?.stopRecording();
+          setRecording(false);
+          skipped.current = [];
+          rollFrom.current = stepRef.current;
+          startedRef.current = false;
+          toggle();
+        },
+      },
+    ]);
+  };
   const stop = () => { void stopPlayback(); setPh('done'); cameraRef.current?.stopRecording(); };
   const close = () => {
     const quit = () => { discard.current = true; cameraRef.current?.stopRecording(); void stopPlayback(); navigation.goBack(); };
@@ -284,12 +358,33 @@ export default function StudioScreen({ navigation, route }: Props) {
             <Text style={styles.chipText}>Back to script</Text>
           </TouchableOpacity>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {recording ? (
-              <View style={styles.chip}><View style={styles.recDot} /><Text style={styles.chipText}>REC {fmt(elapsed)}</Text></View>
+            {granted && !recording && countdown === null ? (
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={flip} accessibilityRole="button" accessibilityLabel="Flip camera" style={styles.chip}><Text style={styles.chipText}>⟲ Flip</Text></TouchableOpacity>
             ) : null}
-            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setAidsOpen(true)} accessibilityRole="button" style={styles.chip}><Text style={styles.chipText}>⚙ Aids</Text></TouchableOpacity>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={openAids} accessibilityRole="button" style={styles.chip}><Text style={styles.chipText}>⚙ Aids</Text></TouchableOpacity>
           </View>
         </View>
+
+        {/* The web's floating marks: a red REC pill and the scene status. */}
+        {countdown === null && (recording || (phase !== 'idle' && phase !== 'done')) ? (
+          <View style={styles.markRow} pointerEvents="none">
+            {phase !== 'idle' && phase !== 'done' ? (
+              <View style={[styles.mark, { backgroundColor: phase === 'user-turn' ? palette.blue : 'rgba(255,255,255,0.15)' }]}>
+                {phase === 'user-turn' ? <Pulse /> : null}
+                <Text style={styles.markText}>
+                  {phase === 'user-turn' ? 'Your line' : phase === 'ai-speaking' ? 'Partner speaking…' : 'Paused'}
+                  <Text style={{ opacity: 0.65, fontFamily: fonts.regular }}>  · {Math.min(step + 1, lines.length)}/{lines.length}</Text>
+                </Text>
+              </View>
+            ) : null}
+            {recording ? (
+              <View style={[styles.mark, { backgroundColor: 'rgba(220,38,38,0.9)' }]} accessibilityLabel={`Recording, ${fmt(elapsed)}`}>
+                {phase === 'paused' ? <View style={styles.markDot} /> : <Pulse />}
+                <Text style={styles.markText}>REC <Text style={{ fontFamily: fonts.regular }}>{fmt(elapsed)}</Text></Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {showStage ? (
           <View style={styles.center}>
@@ -319,7 +414,7 @@ export default function StudioScreen({ navigation, route }: Props) {
 
         {!showStage && countdown === null && phase !== 'idle' && phase !== 'done' ? (
           <View style={styles.controls}>
-            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} disabled={recording} accessibilityRole="button" style={[styles.side, recording && { opacity: 0.4 }]}>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={flip} accessibilityRole="button" accessibilityLabel="Flip camera" style={styles.side}>
               <Text style={styles.chipText}>⟲ Flip</Text>
             </TouchableOpacity>
             {phase === 'paused' ? (
@@ -336,10 +431,11 @@ export default function StudioScreen({ navigation, route }: Props) {
         ) : null}
       </SafeAreaView>
 
-      <Modal visible={aidsOpen} transparent animationType="slide" onRequestClose={() => setAidsOpen(false)}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setAidsOpen(false)} />
+      <Modal visible={aidsOpen} transparent animationType="slide" onRequestClose={closeAids} statusBarTranslucent navigationBarTranslucent>
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={closeAids} accessibilityLabel="Close reading aids" />
         <View style={styles.aids}>
-          <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+          {/* Bottom inset: the last aid must clear the gesture bar / 3-button nav. */}
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 20 + insets.bottom, gap: 16 }}>
             <View>
               <Text style={styles.aidsTitle}>Reading aids</Text>
               <Text style={styles.aidsHelp}>Tune the teleprompter to help you rehearse. They change how the script looks while you run the scene — they don't change your recording.</Text>
@@ -354,6 +450,22 @@ export default function StudioScreen({ navigation, route }: Props) {
       </Modal>
     </View>
   );
+}
+
+// The web's `animate-pulse` dot; holds still under Reduce Motion.
+function Pulse() {
+  const reduceMotion = useReduceMotion();
+  const v = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (reduceMotion) { v.setValue(1); return; }
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(v, { toValue: 0.35, duration: 700, useNativeDriver: true }),
+      Animated.timing(v, { toValue: 1, duration: 700, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [v, reduceMotion]);
+  return <Animated.View style={[styles.markDot, { opacity: v }]} />;
 }
 
 function Aid({ label, help, options, value, onPick }: { label: string; help: string; options: Array<[string, string]>; value: string; onPick: (v: string) => void }) {
@@ -377,9 +489,12 @@ const styles = StyleSheet.create({
   chrome: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 12 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 8 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.45)', minHeight: 44, paddingHorizontal: 13, borderRadius: 999 },
+  chip: { ...controlChip, backgroundColor: 'rgba(0,0,0,0.45)' },
   chipText: { fontFamily: fonts.semibold, fontSize: 13, color: palette.white },
-  recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: RED_DOT },
+  markRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10, paddingHorizontal: 16 },
+  mark: { flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: radii.pill, paddingHorizontal: 13, paddingVertical: 6 },
+  markText: { fontFamily: fonts.semibold, fontSize: 12.5, color: palette.white },
+  markDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.white },
   stageTitle: { fontFamily: fonts.heavy, fontSize: 20, color: palette.white, textAlign: 'center' },
   stageBody: { fontFamily: fonts.regular, fontSize: 13.5, lineHeight: 20, color: stageSurfaces.onDarkMuted, textAlign: 'center' },
   count: { fontFamily: fonts.heavy, fontSize: 120, color: 'rgba(255,255,255,0.9)', letterSpacing: -4 },
@@ -388,7 +503,7 @@ const styles = StyleSheet.create({
   speaker: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 1, marginTop: 8, marginBottom: 6 },
   line: { fontFamily: fonts.semibold },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 20 },
-  side: { minHeight: 44, minWidth: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 999, paddingHorizontal: 14 },
+  side: { ...controlPill, minWidth: 80, backgroundColor: 'rgba(0,0,0,0.45)' },
   primary: { minHeight: 48, paddingHorizontal: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.blue, borderRadius: radii.pill },
   primaryText: { fontFamily: fonts.bold, fontSize: 15, color: palette.white },
   recOuter: { width: 64, height: 64, borderRadius: 32, borderWidth: 4, borderColor: palette.white, alignItems: 'center', justifyContent: 'center' },
@@ -398,5 +513,5 @@ const styles = StyleSheet.create({
   aids: { backgroundColor: stageSurfaces.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '75%' },
   aidsTitle: { fontFamily: fonts.heavy, fontSize: 18, color: palette.white },
   aidsHelp: { fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, color: stageSurfaces.onDarkMuted, marginTop: 3 },
-  aidOpt: { minHeight: 44, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
+  aidOpt: { ...controlChip, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
 });

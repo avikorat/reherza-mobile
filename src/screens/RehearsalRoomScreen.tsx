@@ -26,7 +26,7 @@ import {
   buildSequence, clip, estimateDuration, expectedMs, feedEndpointer, findRedoStep, newEndpointer,
   sceneWindow, ttsContext, type Endpointer,
 } from '../lib/rehearsal';
-import { fonts, radii, palette, brandGradient, brandGradientLocations, gradientStart, gradientEnd, PRESS_OPACITY } from '../theme';
+import { fonts, radii, palette, buttonSpacing, brandGradient, brandGradientLocations, gradientStart, gradientEnd, PRESS_OPACITY, controlPill } from '../theme';
 import type { LineResult, PlayableLine, Project, RecordingClip, RootStackParamList, SessionFeedback, TranscriptResult, UsageInfo } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RehearsalRoom'>;
@@ -271,7 +271,10 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
             showToast({ title: "Some lines won't be voiced", description: `${n} edited ${n === 1 ? 'line' : 'lines'} can't get a new voice while you're out of credits. ${n === 1 ? 'It' : 'They'}'ll play as a silent read.` });
           }
           if (r.ready) break;
-          if (r.code !== 'preparation_in_progress') throw new ApiError(502, 'AI voices could not be prepared. Please try again.', r);
+          if (r.code !== 'preparation_in_progress') {
+            // Keep the server's reason: a credit refusal must read as one.
+            throw new ApiError(r.code === 'insufficient_voice_allowance' ? 402 : 502, r.error || 'AI voices could not be prepared. Please try again.', r);
+          }
           if (r.generated + r.cached === 0) await sleep(750);
         }
         // Hydrate the local cache — all server-side hits now, 3 at a time.
@@ -289,13 +292,19 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
       } catch (e) {
         if (!aliveRef.current) return;
         setPrep(null);
-        const limit = e instanceof ApiError && e.status === 402;
-        setBlocked({
-          message: limit
-            ? (e instanceof Error && e.message) || "You're out of voice credits for this scene."
-            : 'AI voices could not be prepared. Please try again.',
-          billingLocked: !limit,
-        });
+        const body = e instanceof ApiError ? (e.body as { code?: string; error?: string; billingLocked?: boolean } | null) : null;
+        if ((e instanceof ApiError && e.status === 402) || body?.code === 'insufficient_voice_allowance') {
+          // Out of credits: block with the server's own wording (trial accounts
+          // get their contact-your-administrator message from it).
+          setBlocked({
+            message: body?.error || (e instanceof Error && e.message) || "You're out of voice credits for this scene.",
+            billingLocked: body?.billingLocked,
+          });
+        } else {
+          // Anything else is transient. Say so and leave Start Scene tappable —
+          // blocking here is what left users stuck with no way to retry.
+          showToast({ title: 'AI voices could not be prepared', description: 'Check your connection and tap Start Scene to try again.', variant: 'destructive' });
+        }
         return;
       }
       setPrep(null);
@@ -527,9 +536,9 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
         const t = transcripts.get(idx);
         return {
           lineIndex: idx, speaker: ls[idx].speaker, expected: ls[idx].text,
-          spoken: t?.transcript ?? '', confidence: t?.confidence ?? 0, transcriptAttestation: t?.attestation,
+          spoken: (t?.transcript ?? '').trim(), confidence: typeof t?.confidence === 'number' ? Math.max(0, Math.min(1, t.confidence)) : 0, transcriptAttestation: t?.attestation,
           durationMs: c?.durationMs ?? 0, longPauses: c?.longPauses ?? 0, timeToFirstSpeechMs: c?.timeToFirstSpeechMs ?? 0,
-          analyzed: Boolean(t?.transcript),
+          analyzed: Boolean(t?.transcript?.trim()),
           accuracy: 0, missingWords: [], extraWords: [], repeatedWords: [], changedWords: [], fillerWords: [], fillerCount: 0, wpm: 0, lowConfidenceWords: [], issues: [],
         };
       });
@@ -548,33 +557,64 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
 
     if (!skipped && candidates.length) {
       const analysisId = Crypto.randomUUID();
-      let done = 0;
-      setSaveStatus({ text: 'Your coach is reviewing your delivery…', done, total: candidates.length });
       let limitHit = false;
-      await pool(candidates, 3, async (a) => {
-        if (limitHit) return;
-        const line = ls[a.lineIndex];
-        const audio = captures.current.get(a.lineIndex)!.audio!;
-        const body: AnalyzeDeliveryBody = {
-          audioBase64: audio.base64, mimeType: audio.mimeType, analysisId,
-          sessionId: sessionIdRef.current ?? undefined, projectId, lineIndex: a.lineIndex,
-          expected: line.text, speaker: line.speaker, sceneTitle: clip(project?.title, 600),
-          emotion: line.emotion, intensity: line.intensity, action: clip(line.action, 600), deliveryNote: clip(line.deliveryNote, 600),
-          contextBefore: sceneWindow(ls, a.lineIndex, -1), contextAfter: sceneWindow(ls, a.lineIndex, 1),
-          measured: {
-            transcript: a.spoken || undefined, asrConfidence: a.confidence,
-            durationMs: Math.min(a.durationMs ?? 0, 3_600_000), longPauses: Math.min(a.longPauses ?? 0, 100),
-            timeToFirstSpeechMs: Math.min(a.timeToFirstSpeechMs ?? 0, 600_000),
-          },
-        };
-        try {
-          a.delivery = await Speech.analyzeDelivery(body);
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 402) limitHit = true;
-        }
-        done += 1;
-        setSaveStatus({ text: 'Your coach is reviewing your delivery…', done, total: candidates.length });
-      });
+      // One pass over `list`; returns the lines whose analysis failed for a
+      // reason other than the credit limit (network, timeout, server error).
+      const analyse = async (list: LineResult[]) => {
+        const failed: LineResult[] = [];
+        let done = 0;
+        setSaveStatus({ text: 'Your coach is reviewing your delivery…', done, total: list.length });
+        await pool(list, 3, async (a) => {
+          if (limitHit) return;
+          const line = ls[a.lineIndex];
+          const audio = captures.current.get(a.lineIndex)!.audio!;
+          // Like the web: a measurement we don't have is omitted, never sent as
+          // 0 — an asrConfidence of 0 reads as "unintelligible" and sinks the score.
+          const body: AnalyzeDeliveryBody = {
+            audioBase64: audio.base64, mimeType: audio.mimeType, analysisId,
+            sessionId: sessionIdRef.current ?? undefined, projectId, lineIndex: a.lineIndex,
+            expected: line.text, speaker: line.speaker, sceneTitle: clip(project?.title, 600),
+            emotion: line.emotion, intensity: line.intensity, action: clip(line.action, 600), deliveryNote: clip(line.deliveryNote, 600),
+            contextBefore: sceneWindow(ls, a.lineIndex, -1), contextAfter: sceneWindow(ls, a.lineIndex, 1),
+            measured: {
+              transcript: a.spoken || undefined, asrConfidence: a.confidence || undefined,
+              durationMs: a.durationMs ? Math.min(a.durationMs, 3_600_000) : undefined,
+              longPauses: a.longPauses ? Math.min(a.longPauses, 100) : undefined,
+              timeToFirstSpeechMs: a.timeToFirstSpeechMs ? Math.min(a.timeToFirstSpeechMs, 600_000) : undefined,
+            },
+          };
+          try {
+            a.delivery = await Speech.analyzeDelivery(body);
+          } catch (e) {
+            if (e instanceof ApiError && e.status === 402) limitHit = true;
+            else failed.push(a);
+          }
+          done += 1;
+          setSaveStatus({ text: 'Your coach is reviewing your delivery…', done, total: list.length });
+        });
+        return failed;
+      };
+      // A failed analysis used to be dropped silently, saving the run with no
+      // delivery data — which the results page then showed as a score of 0.
+      // Retries share the analysisId, so the pass still costs one credit.
+      let pending = candidates;
+      for (;;) {
+        const failed = await analyse(pending);
+        if (limitHit || !failed.length || !aliveRef.current) break;
+        const retry = await new Promise<boolean>((resolve) =>
+          Alert.alert(
+            failed.length === pending.length ? "Your coach couldn't review this run" : `${failed.length} ${failed.length === 1 ? 'line' : 'lines'} couldn't be reviewed`,
+            "This is usually a connection problem. Try again, or save the run without scoring those lines.",
+            [
+              { text: 'Save without', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Try again', onPress: () => resolve(true) },
+            ],
+            { cancelable: false }
+          )
+        );
+        if (!retry) break;
+        pending = failed;
+      }
       if (limitHit) skipped = 'limit';
     }
 
@@ -836,7 +876,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
           <Ctl theme={theme} icon="pause" label="Pause" show={running} onPress={() => void handlePause()} />
           <Ctl theme={theme} icon="rotate-ccw" label="Redo line" show={running || phase === 'paused'} onPress={() => void handleRedo()} />
           <Ctl theme={theme} icon="arrow-left" label="Back" show disabled={step === 0} onPress={() => void handleBack()} />
-          <Ctl theme={theme} icon="refresh-cw" label="Restart" show ghost onPress={() => void handleRestart()} />
+          <Ctl theme={theme} icon="refresh-cw" label="Restart" show onPress={() => void handleRestart()} />
         </View>
       ) : null}
 
@@ -958,8 +998,12 @@ function PulseDot({ color }: { color: string }) {
   return <Animated.View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, opacity: v }} />;
 }
 
-function Ctl({ theme, icon, label, show, disabled, ghost, onPress }: {
-  theme: T; icon: keyof typeof Feather.glyphMap; label: string; show: boolean; disabled?: boolean; ghost?: boolean; onPress: () => void;
+// One toolbar control. Four share the row, so on a 360dp phone each slot is
+// ~72dp: too narrow for an icon BESIDE "Redo line". Icon over label (the
+// Android bottom-bar layout) gives the label the slot's full width. A hidden
+// control keeps its slot so the others never move under the actor's thumb.
+function Ctl({ theme, icon, label, show, disabled, onPress }: {
+  theme: T; icon: keyof typeof Feather.glyphMap; label: string; show: boolean; disabled?: boolean; onPress: () => void;
 }) {
   if (!show) return <View style={{ flex: 1 }} />;
   return (
@@ -968,10 +1012,11 @@ function Ctl({ theme, icon, label, show, disabled, ghost, onPress }: {
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={[styles.ctl, { borderColor: ghost ? 'transparent' : theme.border, backgroundColor: ghost ? 'transparent' : theme.surface, opacity: disabled ? 0.3 : ghost ? 0.6 : 1 }]}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      style={[styles.ctl, { borderColor: theme.border, backgroundColor: theme.surface, opacity: disabled ? 0.4 : 1 }]}
     >
-      <Feather name={icon} size={15} color={theme.muted} />
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.2} style={{ flexShrink: 1, fontFamily: fonts.semibold, fontSize: 11, color: theme.muted }}>{label}</Text>
+      <Feather name={icon} size={16} color={theme.muted} />
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.2} style={{ fontFamily: fonts.semibold, fontSize: 11, color: theme.muted }}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -980,7 +1025,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
   loadingText: { fontFamily: fonts.semibold, fontSize: 13 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 24, paddingVertical: 8 },
-  endBtn: { borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: 16, height: 44, alignItems: 'center', justifyContent: 'center' },
+  endBtn: { ...controlPill, borderWidth: 1 },
   focusBanner: { alignItems: 'center', paddingVertical: 6, marginTop: 4 },
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   eyebrow: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 1.6, textTransform: 'uppercase' },
@@ -997,9 +1042,9 @@ const styles = StyleSheet.create({
   doneBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: radii.card, paddingVertical: 20, shadowColor: palette.blue, shadowOpacity: 0.3, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 5 },
   doneLabel: { fontFamily: fonts.bold, fontSize: 18, color: palette.white, letterSpacing: 0.3 },
   resumeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: radii.card, paddingVertical: 18 },
-  skipBtn: { flex: 1, borderWidth: 1, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
-  footer: { flexDirection: 'row', gap: 8, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 6, marginTop: 14, borderTopWidth: 1 },
-  ctl: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, height: 44, paddingHorizontal: 10, borderWidth: 1, borderRadius: radii.pill },
+  skipBtn: { ...controlPill, flex: 1, borderWidth: 1 },
+  footer: { flexDirection: 'row', gap: buttonSpacing.rowGap, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 6, marginTop: 14, borderTopWidth: 1 },
+  ctl: { flex: 1, minWidth: 0, minHeight: 52, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 6, borderWidth: 1, borderRadius: radii.cardSm },
   overlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 24 },
   overlayCard: { alignSelf: 'stretch', borderRadius: radii.card, padding: 22, alignItems: 'center' },
   countdown: { fontFamily: fonts.heavy, fontSize: 112, color: palette.white, fontVariant: ['tabular-nums'] },

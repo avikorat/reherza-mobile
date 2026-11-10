@@ -89,7 +89,7 @@ export default function AccountMenu() {
         </View>
       </TouchableOpacity>
 
-      <Modal visible={mounted} transparent animationType="none" onRequestClose={() => setOpen(false)} statusBarTranslucent>
+      <Modal visible={mounted} transparent animationType="none" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
         <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: slide }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel="Close account menu" />
         </Animated.View>

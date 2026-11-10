@@ -10,6 +10,7 @@ import {
   radii,
   palette,
   PRESS_OPACITY,
+  buttonSpacing,
 } from '../theme';
 
 interface GradientButtonProps {
@@ -48,7 +49,7 @@ export default function GradientButton({
         end={gradientEnd}
         style={[styles.grad, { paddingVertical: small ? 13 : 16 }]}
       >
-        <Text style={[styles.label, small && styles.labelSmall, textStyle]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{label}</Text>
+        <Text style={[styles.label, small && styles.labelSmall, textStyle]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} maxFontSizeMultiplier={1.3}>{label}</Text>
       </LinearGradient>
     </TouchableOpacity>
   );
@@ -70,7 +71,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    minHeight: buttonSpacing.minHeight,
+    paddingHorizontal: buttonSpacing.padX,
   },
   label: { color: palette.white, fontFamily: fonts.bold, fontSize: 16, letterSpacing: 0.3 },
   labelSmall: { fontSize: 14 },

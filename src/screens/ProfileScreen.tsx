@@ -16,7 +16,7 @@ import { useAuth } from '../AuthContext';
 import { Auth, Feedback } from '../api';
 import { Cognito, CognitoError, cognitoConfigured } from '../lib/cognito';
 import { LEGAL_DOCUMENTS } from '../legal';
-import { fonts, radii, PRESS_OPACITY } from '../theme';
+import { fonts, radii, PRESS_OPACITY, controlPill } from '../theme';
 import type { RootStackParamList, TabParamList } from '../types';
 
 type Props = CompositeScreenProps<
@@ -148,9 +148,9 @@ export default function ProfileScreen({ navigation }: Props) {
               <Field label="Confirm new password" value={pw.confirm} onChangeText={(v) => setPw((p) => ({ ...p, confirm: v }))} secure placeholder="Repeat new password" />
             </View>
             {pwError ? <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.destructive, marginTop: 8 }}>{pwError}</Text> : null}
-            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginTop: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
               <GradientButton small label={saving ? 'Saving…' : 'Update password'} disabled={saving} onPress={changePassword} />
-              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ResetPassword', { email: user?.email })} accessibilityRole="link" style={{ minHeight: 40, justifyContent: 'center' }}>
+              <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => navigation.navigate('ResetPassword', { email: user?.email })} accessibilityRole="link" style={{ minHeight: 44, justifyContent: 'center' }}>
                 <Text style={{ fontFamily: fonts.semibold, fontSize: 12.5, color: theme.muted }}>Forgot your current password?</Text>
               </TouchableOpacity>
             </View>
@@ -229,5 +229,5 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   dialog: { width: '100%', maxWidth: 420, borderRadius: radii.card, borderWidth: 1, padding: 20 },
   confirmInput: { borderWidth: 1, borderRadius: radii.field, paddingHorizontal: 12, minHeight: 44, fontFamily: fonts.semibold, fontSize: 15, marginTop: 14 },
-  dangerBtn: { minHeight: 44, paddingHorizontal: 16, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
+  dangerBtn: { ...controlPill },
 });

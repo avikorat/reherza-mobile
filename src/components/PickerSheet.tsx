@@ -19,7 +19,7 @@ export default function PickerSheet<T extends string>({
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} accessibilityLabel="Close" />
       <View style={[styles.sheet, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 12 }]}>
         <Text style={{ fontFamily: fonts.bold, fontSize: 15, color: theme.text, padding: 18, paddingBottom: 8 }}>{title}</Text>

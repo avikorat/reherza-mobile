@@ -10,7 +10,7 @@ import { useToast } from '../components/Toast';
 import AccountMenu from '../components/AccountMenu';
 import { useTheme } from '../ThemeContext';
 import { DemoScenes } from '../api';
-import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY, controlChip } from '../theme';
 import type { DemoScene, RootStackParamList, TabParamList } from '../types';
 
 type Props = CompositeScreenProps<
@@ -123,7 +123,7 @@ export default function PlayhouseScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   h1: { fontFamily: fonts.heavy, fontSize: 26, letterSpacing: -0.6 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  filter: { paddingHorizontal: 14, minHeight: 44, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
+  filter: { ...controlChip, borderWidth: 1 },
   chip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: radii.pill },
   chipText: { fontFamily: fonts.semibold, fontSize: 11.5 },
 });

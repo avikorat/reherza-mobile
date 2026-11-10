@@ -1,5 +1,5 @@
 import React, { type ReactNode } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeContext';
@@ -29,11 +29,13 @@ interface ScreenProps {
 // on their scroll content instead — see HomeScreen.
 export const SCREEN_EDGES_TABS: Edge[] = ['top', 'left', 'right'];
 
-// Only iOS needs a KeyboardAvoidingView. Expo's Android default is
-// `softwareKeyboardLayoutMode: "resize"` (adjustResize), so the window already
-// shrinks when the keyboard opens — layering `behavior="height"` on top of that
-// adjusts twice and leaves a gap the size of the keyboard.
-const KEYBOARD_BEHAVIOR = Platform.OS === 'ios' ? 'padding' : undefined;
+// Both platforms need the KeyboardAvoidingView. Android draws edge-to-edge on
+// this Expo SDK, and edge-to-edge disables adjustResize: the window no longer
+// shrinks for the keyboard, so without padding here the keyboard covered the
+// lower fields of every form (Confirm Password on Reset Password). The body is
+// padded up by the keyboard's height; the screen's ScrollView then scrolls the
+// focused field into view.
+const KEYBOARD_BEHAVIOR = 'padding' as const;
 
 export default function Screen({
   children,

@@ -2,7 +2,7 @@ import React from 'react';
 import { Text, StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext';
-import { fonts, radii, PRESS_OPACITY } from '../theme';
+import { fonts, radii, PRESS_OPACITY, buttonSpacing } from '../theme';
 
 interface OutlineButtonProps {
   label: string;
@@ -56,7 +56,7 @@ export default function OutlineButton({
       ]}
     >
       {icon ? <Feather name={icon} size={small ? 15 : 16} color={color} /> : null}
-      <Text style={[styles.label, { color, fontSize: small ? 14 : 15 }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{label}</Text>
+      <Text style={[styles.label, { color, fontSize: small ? 14 : 15 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} maxFontSizeMultiplier={1.3}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -68,8 +68,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-    paddingHorizontal: 18,
+    gap: buttonSpacing.iconGap,
+    minHeight: buttonSpacing.minHeight,
+    paddingHorizontal: buttonSpacing.padX,
     shadowOpacity: 0.6,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },

@@ -68,7 +68,7 @@ export default function SelfTapeSheet({
   }, [open, projectId]);
 
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.4)' }} activeOpacity={1} onPress={onClose} accessibilityLabel="Close" />
       <View style={[styles.sheet, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
         <Text style={{ fontFamily: fonts.heavy, fontSize: 19, color: theme.text }}>Self tape</Text>

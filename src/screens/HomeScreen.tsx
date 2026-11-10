@@ -236,7 +236,7 @@ export default function HomeScreen({ navigation }: Props) {
                         </Text>
                       </TouchableOpacity>
                       {limitStopped && !canReprocess ? null : (
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
                           <GradientButton small label={retrying ? 'Starting…' : canReprocess ? 'Reprocess' : 'Try again'} disabled={retrying} onPress={() => void retry(p.id)} style={{ flex: 1 }} />
                           {!canReprocess ? <OutlineButton small flex label="Enter lines" onPress={() => navigation.navigate('ScriptEditor', { id: p.id })} /> : null}
                         </View>

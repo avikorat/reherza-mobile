@@ -17,7 +17,7 @@ import { useTheme } from '../ThemeContext';
 import { ApiError, Projects, Tts, Usage, Voices } from '../api';
 import { playBase64 } from '../lib/audio';
 import { creditsLabel, formatScriptTitle, isAllowanceFailure, isSpokenDialogue } from '../lib/format';
-import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY, controlChip } from '../theme';
 import type { ParsedLine, Project, RootStackParamList, UsageInfo, Voice, VoiceAssignment } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptDetail'>;
@@ -521,13 +521,13 @@ const styles = StyleSheet.create({
   bannerIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   waitIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   stepNum: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  roleChip: { paddingHorizontal: 16, minHeight: 44, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
-  smallBtn: { borderWidth: 1, borderRadius: radii.pill, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  roleChip: { ...controlChip, borderWidth: 1 },
+  smallBtn: { ...controlChip, borderWidth: 1 },
   select: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: radii.field, paddingHorizontal: 12, minHeight: 44 },
   hint: { fontFamily: fonts.regular, fontSize: 12, textAlign: 'center' },
   dialogueHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
   selectBar: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 12, paddingHorizontal: 16, paddingVertical: 4, borderBottomWidth: 1 },
-  delBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radii.pill, paddingHorizontal: 12, minHeight: 44 },
+  delBtn: { ...controlChip },
   line: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 8, paddingVertical: 8 },
   boxHit: { width: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
 });

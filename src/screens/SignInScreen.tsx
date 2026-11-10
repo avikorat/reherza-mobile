@@ -13,7 +13,7 @@ import { useAuth } from '../AuthContext';
 import { useSocialAuth } from '../lib/socialAuth';
 import { ApiError } from '../api';
 import { CognitoError } from '../lib/cognito';
-import { fonts, radii, PRESS_OPACITY } from '../theme';
+import { fonts, radii, PRESS_OPACITY, controlPill } from '../theme';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignIn'>;
@@ -158,6 +158,6 @@ const styles = StyleSheet.create({
   divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rule: { flex: 1, height: 1 },
   or: { fontFamily: fonts.regular, fontSize: 12 },
-  social: { flexDirection: 'row', gap: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radii.pill, minHeight: 46 },
+  social: { ...controlPill, minHeight: 46, borderWidth: 1 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 20 },
 });

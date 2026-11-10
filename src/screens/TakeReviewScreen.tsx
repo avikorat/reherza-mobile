@@ -141,21 +141,19 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
             : 'Not saved yet — this take is only on this device until you save it.'}
       </Text>
 
-      <View style={{ flex: 1 }} />
-
-      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 16, marginBottom: 12 }}>
         <OutlineButton label="↺ New take" flex onPress={newTake} />
         <OutlineButton secondary label="⬇ Export video" flex onPress={() => void exportTape()} />
       </View>
       {saving ? (
-        <View style={{ paddingVertical: 16, alignItems: 'center' }}>
+        <View style={{ paddingVertical: 16, marginBottom: 8, alignItems: 'center' }}>
           <ActivityIndicator color={theme.accent} />
           <Text style={{ fontFamily: fonts.semibold, fontSize: 12, color: theme.muted, marginTop: 8 }}>
             Saving…
           </Text>
         </View>
       ) : (
-        <GradientButton label={saved ? '✓ Saved' : 'Save take'} disabled={saved} onPress={() => void save()} style={saved ? { opacity: 0.7 } : undefined} />
+        <GradientButton label={saved ? '✓ Saved' : 'Save take'} disabled={saved} onPress={() => void save()} style={[{ marginBottom: 8 }, saved && { opacity: 0.7 }]} />
       )}
     </Screen>
   );
@@ -164,7 +162,10 @@ export default function TakeReviewScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   preview: {
-    borderRadius: radii.card, borderWidth: 1, aspectRatio: 9 / 14, backgroundColor: stageSurfaces.bg,
+    // Fills whatever height is left, so the actions below always fit above the
+    // system navigation bar. A fixed 9:14 box overflowed small screens and
+    // pushed Save under the nav bar.
+    flex: 1, minHeight: 200, borderRadius: radii.card, borderWidth: 1, backgroundColor: stageSurfaces.bg,
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   playBtn: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },

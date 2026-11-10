@@ -8,7 +8,7 @@ import OutlineButton from '../components/OutlineButton';
 import { useToast } from '../components/Toast';
 import { useTheme } from '../ThemeContext';
 import { Feedback } from '../api';
-import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY, controlChip } from '../theme';
 import type { FeedbackBody, FeedbackFeature, FeedbackUseAgain, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Feedback'>;
@@ -228,6 +228,6 @@ const styles = StyleSheet.create({
   meta: { fontFamily: fonts.semibold, fontSize: 11.5 },
   label: { fontFamily: fonts.semibold, fontSize: 14, lineHeight: 20 },
   star: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  chip: { paddingHorizontal: 16, minHeight: 44, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
+  chip: { ...controlChip, borderWidth: 1 },
   box: { borderWidth: 1, borderRadius: radii.field, padding: 12, fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
 });

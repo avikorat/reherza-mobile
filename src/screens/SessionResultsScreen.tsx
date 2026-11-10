@@ -79,8 +79,14 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
   const byIndex = new Map(lines.map((l) => [l.lineIndex, l]));
   const weak = (fb.weakLineIndices || []).map((i) => byIndex.get(i)).filter((l): l is LineResult => Boolean(l));
 
+  // A 0 with no delivery analysis behind it is not a result: the coach never
+  // reviewed the run (the analysis calls failed), so say that instead of
+  // presenting 0 as the final score.
+  const reviewed = (fb.deliveryMatrix?.analyzedCount ?? 0) > 0 || lines.some((l) => l.delivery);
+  const unreviewed = score === 0 && !reviewed && !fb.analysisSkipped && (fb.analyzedLines ?? 0) > 0;
+
   // Why there is no score, in the web's priority order.
-  let noScore: 'declined' | 'budget' | 'limit' | 'noSpeech' | null = null;
+  let noScore: 'declined' | 'budget' | 'limit' | 'noSpeech' | 'unreviewed' | null = unreviewed ? 'unreviewed' : null;
   if (score == null) {
     if (fb.analysisSkippedReason === 'declined') noScore = 'declined';
     else if (fb.analysisSkippedReason === 'budget') noScore = 'budget';
@@ -125,7 +131,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
           <Text style={{ fontFamily: fonts.heavy, fontSize: 32, letterSpacing: -0.8, color: theme.text, marginTop: 4 }}>How'd it go?</Text>
         </View>
 
-        {noScore && noScore !== 'noSpeech' ? (
+        {noScore && noScore !== 'noSpeech' && noScore !== 'unreviewed' ? (
           <Card>
             <Text style={{ fontSize: 28 }}>{noScore === 'declined' ? '⏭️' : '🔒'}</Text>
             <Text style={[styles.h2, { color: theme.text, marginTop: 8 }]}>
@@ -139,6 +145,15 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
             {noScore !== 'declined' ? (
               <GradientButton small label="View usage" style={{ marginTop: 14 }} onPress={() => navigation.navigate('Billing')} />
             ) : null}
+          </Card>
+        ) : noScore === 'unreviewed' ? (
+          <Card>
+            <Text style={{ fontSize: 28 }}>⚠️</Text>
+            <Text style={[styles.h2, { color: theme.text, marginTop: 8 }]}>Your coach couldn't review this run</Text>
+            <Text style={[styles.body, { color: theme.muted }]}>
+              Your lines were saved, but the delivery analysis didn't finish, so there's no score for this run. Rehearse again to get a full review.
+            </Text>
+            <GradientButton small label="Rehearse again" style={{ marginTop: 14 }} onPress={() => navigation.replace('RehearsalRoom', { id: projectId })} />
           </Card>
         ) : noScore === 'noSpeech' ? (
           <Card>

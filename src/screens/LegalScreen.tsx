@@ -42,42 +42,58 @@ export default function LegalScreen({ navigation, route }: Props) {
     );
   }
 
-  return <Reader doc={doc} onBack={() => navigation.goBack()} />;
+  return (
+    <Reader
+      doc={doc}
+      onBack={() => navigation.goBack()}
+      // Replace, not push: the app back button always lands on Settings.
+      onOpenDoc={(docId) => navigation.replace('Legal', { docId })}
+    />
+  );
 }
 
-function Reader({ doc, onBack }: { doc: LegalDocument; onBack: () => void }) {
+// The site's legal pages are written for the website: they open with a
+// "← Back to Reherza" link and point at reherza.com. Inside the app the reader
+// must be a closed document view, so before the page renders we hide that web
+// chrome and route every link through the app instead of the WebView.
+const APP_CHROME_CSS = `header, nav, footer, a[href="/"], a[href="${WEB_URL}"], a[href="${WEB_URL}/"] { display: none !important; }`;
+
+function Reader({ doc, onBack, onOpenDoc }: { doc: LegalDocument; onBack: () => void; onOpenDoc: (docId: string) => void }) {
   const { theme } = useTheme();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const url = `${WEB_URL}${doc.path}`;
 
-  // The site is a single-page app: its own back button and header links change
-  // the route with history.pushState, which never reaches
-  // onShouldStartLoadWithRequest — so without this, "back" rendered the web
-  // landing page inside the app. Swallow every in-page route change that leaves
-  // this document and hand it to native instead: going home closes the reader,
-  // anything else opens in the system browser.
+  // The site is a single-page app: its links change the route with
+  // history.pushState, which never reaches onShouldStartLoadWithRequest. Swallow
+  // every in-page route change that leaves this document and hand it to native.
   const guard = `(function () {
+    var style = document.createElement('style');
+    style.textContent = ${JSON.stringify(APP_CHROME_CSS)};
+    document.documentElement.appendChild(style);
     var doc = ${JSON.stringify(doc.path)};
-    function leave(target) {
-      var u = new URL(String(target), location.href);
-      if (u.pathname === doc) return false;
-      window.ReactNativeWebView.postMessage(u.pathname === '/' ? 'close' : 'open:' + u.href);
-      return true;
-    }
     ['pushState', 'replaceState'].forEach(function (m) {
       var orig = history[m].bind(history);
       history[m] = function (state, title, target) {
-        if (target != null && leave(target)) return;
+        if (target != null) {
+          var u = new URL(String(target), location.href);
+          if (u.pathname !== doc) { window.ReactNativeWebView.postMessage(u.href); return; }
+        }
         return orig(state, title, target);
       };
     });
-    window.addEventListener('popstate', function () { leave(location.href); });
   })(); true;`;
 
-  const onMessage = (data: string) => {
-    if (data === 'close') onBack();
-    else if (data.startsWith('open:')) Linking.openURL(data.slice(5)).catch(() => {});
+  // Every navigation that leaves the document ends here. Never loads the website.
+  const leave = (target: string) => {
+    let u: URL;
+    try { u = new URL(target, url); } catch { return; }
+    if (u.origin === new URL(WEB_URL).origin) {
+      const other = LEGAL_DOCUMENTS.find((d) => d.path === u.pathname.replace(/\/$/, ''));
+      if (other && other.id !== doc.id) onOpenDoc(other.id);
+      return; // any other page on the site stays out of the app
+    }
+    if (/^(https?|mailto|tel):$/.test(u.protocol)) Linking.openURL(u.href).catch(() => {});
   };
 
   return (
@@ -130,18 +146,18 @@ function Reader({ doc, onBack }: { doc: LegalDocument; onBack: () => void }) {
             source={{ uri: url }}
             style={{ flex: 1, backgroundColor: theme.bg }}
             injectedJavaScriptBeforeContentLoaded={guard}
-            onMessage={(e) => onMessage(e.nativeEvent.data)}
+            onMessage={(e) => leave(e.nativeEvent.data)}
             onLoadEnd={() => setLoading(false)}
             onError={() => {
               setLoading(false);
               setFailed(true);
             }}
-            // A legal document is a document — it should not be able to navigate
-            // the user somewhere else in-app. Taps that leave the document open
-            // in the system browser instead.
+            // Full page loads (plain <a href>, mailto:) take the same exit.
             onShouldStartLoadWithRequest={(req) => {
-              if (req.url === url || req.url.startsWith(`${url}#`)) return true;
-              Linking.openURL(req.url).catch(() => {});
+              // Embedded frames (analytics, video) are not the user navigating.
+              if (req.isTopFrame === false) return true;
+              if (req.url === url || req.url.startsWith(`${url}#`) || req.url.startsWith(`${url}?`)) return true;
+              leave(req.url);
               return false;
             }}
           />

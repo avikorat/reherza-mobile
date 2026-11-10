@@ -12,7 +12,7 @@ import { BackButton, HeaderAction } from '../components/Bits';
 import { useTheme } from '../ThemeContext';
 import { ApiError, Projects } from '../api';
 import { creditsLabel, formatScriptTitle, spokenDialogueCount } from '../lib/format';
-import { fonts, radii, palette, PRESS_OPACITY } from '../theme';
+import { fonts, radii, palette, PRESS_OPACITY, controlChip } from '../theme';
 import type { ParsedLine, Project, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScriptEditor'>;
@@ -199,10 +199,23 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
   const isFiltered = !!filter || (!showActions && hiddenActions > 0);
   const dialogueCount = lines.filter((l) => l.speaker.trim() && l.dialogue.trim()).length;
 
-  const spokenChanged = () => {
-    const key = (rows: { speaker: string; text: string }[]) => rows.map((r) => `${r.speaker.trim().toUpperCase()}\u0000${r.text.trim().toLowerCase()}`).join('\u0001');
-    const before = (project?.parsedLines ?? []).filter((l) => (l.type ?? 'dialogue') === 'dialogue' && l.speaker?.trim() && l.text?.trim()).map((l) => ({ speaker: l.speaker, text: l.text }));
-    const after = lines.filter((l) => l.speaker.trim() && l.dialogue.trim()).map((l) => ({ speaker: l.speaker, text: l.dialogue }));
+  // Everything the AI voice is generated from: who says it, the words, and the
+  // performance (emotion, intensity, action + delivery note, audio tags). A
+  // change to ANY of these invalidates the voiced audio, so it has to go
+  // through the cost quote. Comparing only the words let a performance-only
+  // edit (intensity 80% → 75%) save for free and then fail at rehearsal.
+  const voiceChanged = () => {
+    const key = (rows: { speaker: string; text: string; emotion?: string; intensity?: number; action?: string; deliveryNote?: string; audioTags?: string[] }[]) =>
+      rows.map((r) => [
+        r.speaker.trim().toUpperCase(),
+        r.text.trim().toLowerCase(),
+        (r.emotion ?? '').trim().toLowerCase(),
+        typeof r.intensity === 'number' ? r.intensity : '',
+        [r.action, r.deliveryNote].map((v) => v?.trim()).filter(Boolean).join('; '),
+        (r.audioTags ?? []).join(','),
+      ].join('\u0000')).join('\u0001');
+    const before = (project?.parsedLines ?? []).filter((l) => (l.type ?? 'dialogue') === 'dialogue' && l.speaker?.trim() && l.text?.trim());
+    const after = lines.filter((l) => l.speaker.trim() && l.dialogue.trim()).map((l) => ({ ...l, text: l.dialogue }));
     return key(before) !== key(after);
   };
 
@@ -260,7 +273,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
 
   const save = async () => {
     if (saving) return;
-    if (!spokenChanged()) { continueSave(); return; }
+    if (!voiceChanged()) { continueSave(); return; }
     setSaving(true);
     const quoted = await Projects.editPrice(projectId).catch(() => null);
     setSaving(false);
@@ -268,7 +281,7 @@ export default function ScriptEditorScreen({ navigation, route }: Props) {
     if (quoted.milli <= 0) { continueSave(); return; }
     Alert.alert(
       `Save changes for ${creditsLabel(quoted.milli)}?`,
-      `Your scene partner's lines have already been voiced for this script, so changing it uses ${creditsLabel(quoted.milli)} to generate the new lines. Cancel keeps the script, and your credits, as they are.`,
+      `Your scene partner's lines have already been voiced for this script, so changing the lines or how they're performed uses ${creditsLabel(quoted.milli)} to generate new audio. Cancel keeps the script, and your credits, as they are.`,
       [{ text: 'Cancel', style: 'cancel' }, { text: `Use ${creditsLabel(quoted.milli)} & save`, onPress: continueSave }]
     );
   };
@@ -527,7 +540,7 @@ const styles = StyleSheet.create({
   seg: { flexDirection: 'row', borderRadius: 8, padding: 2 },
   segItem: { paddingHorizontal: 12, minHeight: 30, justifyContent: 'center', borderRadius: 6 },
   iconBtn: { width: 30, height: 30, borderRadius: 7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  chip: { paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', borderRadius: radii.pill, borderWidth: 1 },
+  chip: { ...controlChip, borderWidth: 1 },
   addLine: { borderWidth: 2, borderStyle: 'dashed', borderRadius: radii.card, minHeight: 52, alignItems: 'center', justifyContent: 'center' },
   saveBar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1 },
 });

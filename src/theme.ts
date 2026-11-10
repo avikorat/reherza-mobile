@@ -90,6 +90,30 @@ export const radii = {
   pill: 999,    // rounded-full — the Dashboard's primary CTAs
 } as const;
 
+// ── Buttons ────────────────────────────────────────────────────────────────
+// One spacing system for every control, so similar buttons match on every
+// screen. Spread `controlPill` (actions) or `controlChip` (selectable chips,
+// filters) into a style and add only colour/border on top.
+export const buttonSpacing = {
+  minHeight: 44,    // touch target — the web's min-h-11
+  padX: 16,         // pill actions
+  padXCompact: 12,  // chips and filters, which sit in wrapping rows
+  iconGap: 6,       // icon ↔ label
+  rowGap: 10,       // between adjacent buttons
+} as const;
+
+export const controlPill = {
+  minHeight: buttonSpacing.minHeight,
+  paddingHorizontal: buttonSpacing.padX,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: buttonSpacing.iconGap,
+  borderRadius: radii.pill,
+} as const;
+
+export const controlChip = { ...controlPill, paddingHorizontal: buttonSpacing.padXCompact } as const;
+
 // ── Type ───────────────────────────────────────────────────────────────────
 // Manrope is the ONE project typeface, exactly as on the web: every heading,
 // score and scripted line renders in Manrope, and WEIGHT carries the hierarchy.

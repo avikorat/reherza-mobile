@@ -171,6 +171,8 @@ export interface PregenerateResult {
   /** Edited lines that can't get a new voice while out of credits. */
   withheld?: number;
   code?: string;
+  error?: string;
+  billingLocked?: boolean;
   requiredCharacters?: number;
   remainingCharacters?: number;
 }
