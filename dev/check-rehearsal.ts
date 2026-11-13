@@ -1,6 +1,6 @@
 // One runnable check for the rehearsal helpers: `node dev/check-rehearsal.ts`.
 import assert from 'node:assert/strict';
-import { buildSequence, feedEndpointer, findRedoStep, newEndpointer, silenceWindowMs, wordDiff, sceneWindow } from '../src/lib/rehearsal.ts';
+import { buildSequence, feedEndpointer, findRedoStep, lineCoverage, lineFinished, newEndpointer, silenceWindowMs, wordDiff, sceneWindow } from '../src/lib/rehearsal.ts';
 import type { PlayableLine } from '../src/types.ts';
 
 const L = (i: number, mine: boolean, text = 'one two three four'): PlayableLine =>
@@ -32,4 +32,19 @@ assert.deepEqual(d.words.map((w) => w.status), ['matched', 'matched', 'matched',
 assert.deepEqual(d.extras, ['gonna']);
 assert.deepEqual(wordDiff('And no — I did.', 'and no i did').words.map((w) => w.status), ['matched', 'matched', 'matched', 'matched', 'matched']);
 assert.equal(sceneWindow(lines, 2, -1), 'AI: one two three four\nME: one two three four');
+
+const line = "I told you I'd be back before midnight.";
+const half = lineCoverage(line, 'I told you');
+assert.equal(half.endHeard, false);
+assert.equal(lineFinished(half, true, 1000), false, 'a mid-line beat does not end the turn');
+assert.equal(lineFinished(half, true, 4000), true, 'a long dry-up eventually does');
+const whole = lineCoverage(line, 'i told you id be back before midnight');
+assert.equal(whole.coverage, 1);
+assert.equal(lineFinished(whole, true, 500), false);
+assert.equal(lineFinished(whole, true, 700), true, 'full line ends after a short quiet');
+const loose = lineCoverage(line, 'I said I would be back by midnight');
+assert.equal(loose.endHeard, true);
+assert.equal(lineFinished(loose, true, 700), true, 'a paraphrase that reaches the end counts');
+assert.equal(lineFinished(lineCoverage(line, ''), false, 60000), false, 'nothing heard never ends here');
+assert.equal(lineFinished(lineCoverage('Yes.', 'yes'), true, 700), true, 'one-word lines');
 console.log('rehearsal helpers ok');

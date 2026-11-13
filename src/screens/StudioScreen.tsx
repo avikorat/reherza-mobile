@@ -8,8 +8,11 @@ import { useKeepAwake } from 'expo-keep-awake';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useToast } from '../components/Toast';
 import { Projects, Tts, Voices, playableLines } from '../api';
-import { cacheClip, leaveRehearsalAudioMode, playClip, stopPlayback } from '../lib/audio';
-import { buildPrepLines, estimateDuration } from '../lib/rehearsal';
+import { cacheClip, leaveRehearsalAudioMode, playClip, startRecording, stopPlayback, stopRecording } from '../lib/audio';
+import { buildPrepLines, estimateDuration, expectedMs, feedEndpointer, lineCoverage, lineFinished, newEndpointer, SPEECH_DB } from '../lib/rehearsal';
+import { ensureSpeechPermission, listenForLine } from '../lib/speech';
+import { Logo } from '../components/Bits';
+import SpokenLine from '../components/SpokenLine';
 import { explainPermission, openSettingsForPermission } from '../lib/permissions';
 import { useReduceMotion } from '../lib/motion';
 import { fonts, radii, palette, stageSurfaces, RED_DOT, PRESS_OPACITY, controlChip, controlPill } from '../theme';
@@ -28,9 +31,11 @@ const fmt = (ms: number) => { const s = Math.floor(ms / 1000); return `${String(
 
 // The web's Studio in self-tape mode: credits check → camera → the partner's
 // lines are generated up front → count-in → the camera records while the AI
-// partner reads every other role. Your lines advance with "Next line" — the
-// camera owns the microphone while it records, so the web's silence detection
-// isn't available here.
+// partner reads every other role. Your line ends on its own, as on the web:
+// speech recognition follows it word by word next to the camera (Android 13+,
+// iOS) and moves on once you've said it through and paused. Without
+// recognition, a metered mic ends the turn on trailing silence; with no mic at
+// all, the line is timed. "Next line" stays as a manual override.
 //
 // Opening Reading aids pauses the scene AND the recording, as the web does;
 // closing them leaves a Resume button, so nothing moves until the actor is
@@ -63,6 +68,8 @@ export default function StudioScreen({ navigation, route }: Props) {
   const [cueMode, setCueMode] = useState<CueMode>('full');
   const [mirror, setMirror] = useState(false);
   const [captions, setCaptions] = useState(true);
+  // What recognition has heard of your current line, for the word-by-word highlight.
+  const [spoken, setSpoken] = useState('');
 
   const clips = useRef<Map<number, string>>(new Map());
   const phaseRef = useRef<Phase>('idle');
@@ -171,6 +178,8 @@ export default function StudioScreen({ navigation, route }: Props) {
     })();
     return () => {
       alive.current = false;
+      listenToken.current += 1;
+      endListen.current();
       void stopPlayback();
       void leaveRehearsalAudioMode();
     };
@@ -197,6 +206,8 @@ export default function StudioScreen({ navigation, route }: Props) {
     if (stage !== null || !granted || !cameraReady || startedRef.current) return;
     startedRef.current = true;
     void (async () => {
+      // Speech access is asked before the count-in, never mid-take (iOS prompts once).
+      speechOk.current = await ensureSpeechPermission();
       // The count-in holds while Reading aids are open.
       const waitAids = async () => { while (aidsOpenRef.current && alive.current) await sleep(200); };
       for (let n = countdownSec; n > 0 && alive.current; n--) {
@@ -240,13 +251,75 @@ export default function StudioScreen({ navigation, route }: Props) {
     return () => clearInterval(id);
   }, [recording]);
 
-  // ── 5. The scene: the partner speaks, you speak, "Next line" moves on ──
+  // ── 5. The scene: the partner speaks, you speak, silence moves it on ──
+  // Bumped whenever the user's turn ends, so a late result, sample or timer is ignored.
+  const listenToken = useRef(0);
+  const endListen = useRef(() => {});
+  // Word-by-word recognition, settled before the take rolls (Android 13+, iOS).
+  const speechOk = useRef(false);
+  const stopListening = () => { listenToken.current += 1; endListen.current(); endListen.current = () => {}; };
+  const listen = (s: number) => {
+    const token = ++listenToken.current;
+    const live = () => token === listenToken.current && phaseRef.current === 'user-turn' && stepRef.current === s && alive.current;
+    setSpoken('');
+    const finish = () => { if (live()) run(s + 1); };
+    const text = linesRef.current[s].text;
+    const expected = expectedMs(text);
+    let heard = false;
+    let stopSpeech = () => {};
+    let stopMeter = () => {};
+    let speechFailed = false;
+    let tick: ReturnType<typeof setInterval> | undefined;
+    // Nothing heard at all (the actor skipped the line, or the mic is silenced
+    // while the camera records): give the line its spoken length plus a beat.
+    // ponytail: fixed grace; tune per device if the timed fallback cuts actors off.
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    const armFallback = () => { clearTimeout(fallback); fallback = setTimeout(() => { if (!heard) finish(); }, Math.max(5000, expected * 1.5 + 2000)); };
+    armFallback();
+    endListen.current = () => { clearTimeout(fallback); clearInterval(tick); stopSpeech(); stopMeter(); };
+
+    // Fallback endpointing: trailing silence on a metered mic, as in the Rehearsal Room.
+    const meter = () => {
+      let ep = newEndpointer();
+      let last = 0;
+      stopMeter = () => { void stopRecording().catch(() => null); };
+      startRecording((sample) => {
+        if (!live()) return;
+        const now = Date.now();
+        const dt = last ? Math.min(now - last, 400) : 100;
+        last = now;
+        if (sample.db >= SPEECH_DB) heard = true;
+        ep = feedEndpointer(ep, sample.db, dt, now, expected);
+        if (ep.done) finish();
+      }).then(() => { if (token !== listenToken.current) void stopRecording().catch(() => null); }, () => {});
+    };
+    if (!speechOk.current) { meter(); return; }
+
+    // The web's rule: wait until the line has been said through to its end,
+    // then move on after a short quiet; a mid-line beat doesn't count.
+    let transcript = '';
+    let changedAt = Date.now();
+    stopSpeech = listenForLine(
+      text,
+      (t) => { if (t === transcript || !live()) return; transcript = t; changedAt = Date.now(); if (t) heard = true; setSpoken(t); },
+      // Recognition died: the meter takes over from scratch, so the timeout
+      // restarts too, or a half-said line could wait forever.
+      () => { speechFailed = true; clearInterval(tick); if (!live()) return; heard = false; armFallback(); meter(); },
+      'videoRecording'
+    );
+    if (speechFailed) return; // failed on start; the meter already took over
+    tick = setInterval(() => {
+      if (live() && lineFinished(lineCoverage(text, transcript), heard, Date.now() - changedAt)) finish();
+    }, 100);
+  };
+
   const run = (s: number) => {
+    stopListening();
     const ls = linesRef.current;
     if (s >= ls.length) { setPh('done'); cameraRef.current?.stopRecording(); return; }
     stepRef.current = s;
     setStep(s);
-    if (ls[s].mine) { setPh('user-turn'); return; }
+    if (ls[s].mine) { setPh('user-turn'); listen(s); return; }
     setPh('ai-speaking');
     const clip = clips.current.get(s);
     const advance = () => { if (phaseRef.current !== 'paused' && stepRef.current === s && alive.current) run(s + 1); };
@@ -262,6 +335,7 @@ export default function StudioScreen({ navigation, route }: Props) {
     const ph = phaseRef.current;
     if (ph === 'idle' || ph === 'done' || ph === 'paused') return;
     void stopPlayback();
+    stopListening();
     setPh('paused');
     if (!recordingRef.current || recPaused.current) return;
     let canToggle = false;
@@ -303,9 +377,9 @@ export default function StudioScreen({ navigation, route }: Props) {
       },
     ]);
   };
-  const stop = () => { void stopPlayback(); setPh('done'); cameraRef.current?.stopRecording(); };
+  const stop = () => { void stopPlayback(); stopListening(); setPh('done'); cameraRef.current?.stopRecording(); };
   const close = () => {
-    const quit = () => { discard.current = true; cameraRef.current?.stopRecording(); void stopPlayback(); navigation.goBack(); };
+    const quit = () => { discard.current = true; stopListening(); cameraRef.current?.stopRecording(); void stopPlayback(); navigation.goBack(); };
     if (!recording) { quit(); return; }
     Alert.alert('Stop this take?', 'This take is discarded.', [{ text: 'Keep recording', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: quit }]);
   };
@@ -365,9 +439,12 @@ export default function StudioScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {/* The web's floating marks: a red REC pill and the scene status. */}
+        {/* The web's floating marks: the Reherza rec mark, a red REC pill and the scene status. */}
         {countdown === null && (recording || (phase !== 'idle' && phase !== 'done')) ? (
           <View style={styles.markRow} pointerEvents="none">
+            <View style={[styles.mark, { backgroundColor: 'rgba(0,0,0,0.45)' }]} accessibilityLabel="Reherza self-tape">
+              <Logo size={11} color={palette.white} />
+            </View>
             {phase !== 'idle' && phase !== 'done' ? (
               <View style={[styles.mark, { backgroundColor: phase === 'user-turn' ? palette.blue : 'rgba(255,255,255,0.15)' }]}>
                 {phase === 'user-turn' ? <Pulse /> : null}
@@ -403,9 +480,13 @@ export default function StudioScreen({ navigation, route }: Props) {
                 <Text style={[styles.speaker, { color: current.mine ? palette.white : palette.cyanBright }]}>
                   {current.mine ? `YOU · ${current.speaker}` : phase === 'ai-speaking' ? `${current.speaker} · Partner speaking…` : current.speaker}
                 </Text>
-                <Text style={[styles.line, { fontSize: 21 * textScale, lineHeight: 30 * textScale, color: current.mine ? palette.white : palette.cyanBright }]}>
-                  {current.mine ? yourText(current) : current.text}
-                </Text>
+                {current.mine && cueMode === 'full' ? (
+                  <SpokenLine text={current.text} spoken={phase === 'user-turn' ? spoken : ''} heardColor={palette.green} style={[styles.line, { fontSize: 21 * textScale, lineHeight: 30 * textScale, color: palette.white }]} />
+                ) : (
+                  <Text style={[styles.line, { fontSize: 21 * textScale, lineHeight: 30 * textScale, color: current.mine ? palette.white : palette.cyanBright }]}>
+                    {current.mine ? yourText(current) : current.text}
+                  </Text>
+                )}
                 {nextL ? <Text numberOfLines={1} style={[styles.dim, { fontSize: 13 * textScale, marginTop: 8 }]}>{nextL.speaker}: {nextL.mine ? yourText(nextL) : nextL.text}</Text> : null}
               </View>
             ) : null}

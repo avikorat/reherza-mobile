@@ -97,6 +97,36 @@ export function feedEndpointer(e: Endpointer, db: number, dt: number, now: numbe
   return n;
 }
 
+// ── Word-level endpointing (speech recognition) ───────────────────────────
+// The web's coverage rule: the turn ends once the line has been said through
+// to its last word and the recognizer goes quiet, not on silence alone, so a
+// mid-line beat doesn't cut the actor off.
+
+export interface LineCoverage {
+  /** 0…1 share of the line's words heard; a misheard word counts half. */
+  coverage: number;
+  /** The transcript reaches the line's last word. */
+  endHeard: boolean;
+}
+
+export function lineCoverage(expected: string, spoken: string): LineCoverage {
+  const words = wordDiff(expected, spoken).words.filter((w) => norm(w.text));
+  if (!words.length || !spoken.trim()) return { coverage: 0, endHeard: false };
+  const score = words.reduce((n, w) => n + (w.status === 'matched' ? 1 : w.status === 'changed' ? 0.5 : 0), 0);
+  return { coverage: score / words.length, endHeard: words[words.length - 1].status !== 'missing' };
+}
+
+const LINE_DONE_QUIET_MS = 700;
+const LINE_PARTIAL_QUIET_MS = 4000;
+
+/** `quietMs` = time since the transcript last changed. Nothing heard → never
+ *  (the caller times out a skipped line). */
+export function lineFinished(c: LineCoverage, heardAnything: boolean, quietMs: number): boolean {
+  if (!heardAnything) return false;
+  const complete = c.coverage >= 0.85 || (c.endHeard && c.coverage >= 0.6);
+  return quietMs >= (complete ? LINE_DONE_QUIET_MS : LINE_PARTIAL_QUIET_MS);
+}
+
 // ── TTS payloads ──────────────────────────────────────────────────────────
 
 const ctx = (l: ParsedLine | undefined) => (l ? `${l.speaker}: ${l.text}` : undefined);

@@ -79,21 +79,20 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
   const byIndex = new Map(lines.map((l) => [l.lineIndex, l]));
   const weak = (fb.weakLineIndices || []).map((i) => byIndex.get(i)).filter((l): l is LineResult => Boolean(l));
 
-  // A 0 with no delivery analysis behind it is not a result: the coach never
-  // reviewed the run (the analysis calls failed), so say that instead of
-  // presenting 0 as the final score.
+  // Why there is no score, in the web's priority order. These checks don't
+  // depend on the score: the API stores 0 (not null) for a run with no
+  // analysed lines, and presenting that 0 as a result was the bug.
+  const nothingHeard = (fb.version ?? 0) >= 2 && !fb.analyzedLines;
+  // A 0 with lines heard but no delivery analysis behind it: the coach never
+  // reviewed the run (the analysis calls failed). Native-only; the web shows 0.
   const reviewed = (fb.deliveryMatrix?.analyzedCount ?? 0) > 0 || lines.some((l) => l.delivery);
-  const unreviewed = score === 0 && !reviewed && !fb.analysisSkipped && (fb.analyzedLines ?? 0) > 0;
-
-  // Why there is no score, in the web's priority order.
-  let noScore: 'declined' | 'budget' | 'limit' | 'noSpeech' | 'unreviewed' | null = unreviewed ? 'unreviewed' : null;
-  if (score == null) {
-    if (fb.analysisSkippedReason === 'declined') noScore = 'declined';
-    else if (fb.analysisSkippedReason === 'budget') noScore = 'budget';
-    else if (fb.analysisSkipped) noScore = 'limit';
-    else if ((fb.version ?? 0) >= 2 && !fb.analyzedLines && usage?.exceeded) noScore = 'budget';
-    else noScore = 'noSpeech';
-  }
+  let noScore: 'declined' | 'budget' | 'limit' | 'noSpeech' | 'unreviewed' | null = null;
+  if (fb.analysisSkippedReason === 'declined') noScore = 'declined';
+  else if (fb.analysisSkippedReason === 'budget') noScore = 'budget';
+  else if (fb.analysisSkipped) noScore = 'limit';
+  else if (nothingHeard && usage?.exceeded) noScore = 'budget';
+  else if (nothingHeard || score == null) noScore = 'noSpeech';
+  else if (score === 0 && !reviewed && (fb.analyzedLines ?? 0) > 0) noScore = 'unreviewed';
   const delta = score != null && previous?.feedback.confidenceScore != null ? score - previous.feedback.confidenceScore : null;
   const matrix = fb.deliveryMatrix;
   // Older sessions: average the per-line emotion match / clarity (0-1 or 0-100).
@@ -160,6 +159,7 @@ export default function SessionResultsScreen({ navigation, route }: Props) {
             <Text style={{ fontSize: 28 }}>🎙️</Text>
             <Text style={[styles.h2, { color: theme.text, marginTop: 8 }]}>We couldn't score this run</Text>
             <Text style={[styles.body, { color: theme.muted }]}>{fb.notes || 'We didn’t catch any of your lines clearly enough to score. Try again a touch closer to the mic.'}</Text>
+            <GradientButton small label="Rehearse again" style={{ marginTop: 14 }} onPress={() => navigation.replace('RehearsalRoom', { id: projectId })} />
           </Card>
         ) : (
           <Card style={{ alignItems: 'center' }}>
