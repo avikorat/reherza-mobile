@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Modal, ScrollView, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Modal, ScrollView, Animated, useWindowDimensions, AppState, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -8,11 +8,10 @@ import { useKeepAwake } from 'expo-keep-awake';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useToast } from '../components/Toast';
 import { Projects, Tts, Voices, playableLines } from '../api';
-import { cacheClip, leaveRehearsalAudioMode, playClip, startRecording, stopPlayback, stopRecording } from '../lib/audio';
-import { buildPrepLines, estimateDuration, expectedMs, feedEndpointer, lineCoverage, lineFinished, newEndpointer, SPEECH_DB } from '../lib/rehearsal';
+import { cacheClip, leaveRehearsalAudioMode, playClip, preloadClip, startRecording, stopPlayback, stopRecording } from '../lib/audio';
+import { buildPrepLines, estimateDuration, expectedMs, LineTurn, newLevelGate, STUDIO_PATIENT_MS } from '../lib/rehearsal';
 import { ensureSpeechPermission, listenForLine } from '../lib/speech';
-import { Logo } from '../components/Bits';
-import SpokenLine from '../components/SpokenLine';
+import SpokenLine, { createSpokenStore } from '../components/SpokenLine';
 import { explainPermission, openSettingsForPermission } from '../lib/permissions';
 import { useReduceMotion } from '../lib/motion';
 import { fonts, radii, palette, stageSurfaces, RED_DOT, PRESS_OPACITY, controlChip, controlPill } from '../theme';
@@ -52,6 +51,16 @@ export default function StudioScreen({ navigation, route }: Props) {
   const [micPerm, requestMicPerm] = useMicrophonePermissions();
   const [facing, setFacing] = useState<CameraType>('front');
   const [cameraReady, setCameraReady] = useState(false);
+  // The camera view is remounted (new key) when it fails to start; after two
+  // tries the actor gets an error with Retry instead of a black screen.
+  const [camKey, setCamKey] = useState(0);
+  const [camError, setCamError] = useState<string | null>(null);
+  const camRetries = useRef(0);
+  const cameraReadyRef = useRef(false);
+  cameraReadyRef.current = cameraReady;
+  // Bumped to roll a new take (flip & restart, try again): the count-in
+  // effect can't rely on cameraReady changing, as iOS never re-fires it.
+  const [roll, setRoll] = useState(0);
   const [project, setProject] = useState<Project | null>(null);
   const [lines, setLines] = useState<PlayableLine[]>([]);
   const [stage, setStage] = useState<Stage>('checking');
@@ -69,7 +78,7 @@ export default function StudioScreen({ navigation, route }: Props) {
   const [mirror, setMirror] = useState(false);
   const [captions, setCaptions] = useState(true);
   // What recognition has heard of your current line, for the word-by-word highlight.
-  const [spoken, setSpoken] = useState('');
+  const spoken = useRef(createSpokenStore()).current;
 
   const clips = useRef<Map<number, string>>(new Map());
   const phaseRef = useRef<Phase>('idle');
@@ -216,12 +225,19 @@ export default function StudioScreen({ navigation, route }: Props) {
         await sleep(1000);
       }
       await waitAids();
+      // A flip during the count-in rebinds the camera (Android): record on the new one.
+      while (!cameraReadyRef.current && alive.current) await sleep(100);
       setCountdown(null);
       if (!alive.current) return;
       void record();
+      // The recorder takes a moment to actually start (CameraX longer than
+      // AVFoundation); without this the partner's first words miss the take.
+      // ponytail: fixed lead-in; switch to a recording-started event if expo-camera adds one.
+      await sleep(Platform.OS === 'android' ? 700 : 350);
+      if (!alive.current || !recordingRef.current) return;
       run(rollFrom.current);
     })();
-  }, [stage, granted, cameraReady]);
+  }, [stage, granted, cameraReady, roll]);
 
   const record = async () => {
     if (!cameraRef.current) return;
@@ -232,18 +248,62 @@ export default function StudioScreen({ navigation, route }: Props) {
     recPaused.current = false;
     setElapsed(0);
     try {
-      const video = await cameraRef.current.recordAsync({ maxDuration: 600 });
+      // H.264, as the web uploads: iOS would otherwise pick HEVC, which many
+      // browsers can't play back.
+      const video = await cameraRef.current.recordAsync({ maxDuration: 600, codec: 'avc1' });
       if (token !== recToken.current) return;
       setRecording(false);
-      if (!video?.uri || discard.current || !alive.current) return;
+      if (discard.current || !alive.current) return;
+      if (!video?.uri) { takeFailed(); return; }
       if (skipped.current.length) {
         toast({ title: `${skipped.current.length} line${skipped.current.length === 1 ? '' : 's'} couldn't be voiced`, description: 'Your scene partner skipped them so the take could keep running.', variant: 'destructive' });
       }
       navigation.replace('TakeReview', { id: projectId, uri: video.uri, durationMs: Math.max(1000, takeMs()) });
     } catch {
-      if (token === recToken.current) setRecording(false);
+      if (token !== recToken.current) return;
+      setRecording(false);
+      if (!discard.current && alive.current) takeFailed();
     }
   };
+
+  // The camera stopped recording on its own (it was taken away, or never
+  // started): stop the scene rather than play on to nothing, and offer a
+  // fresh take on a freshly mounted camera.
+  const takeFailed = () => {
+    stopListening();
+    void stopPlayback();
+    setPh('done');
+    Alert.alert('Recording stopped', 'Your camera stopped recording, so this take wasn’t saved.', [
+      { text: 'Back to script', style: 'cancel', onPress: () => navigation.goBack() },
+      { text: 'Try again', onPress: () => restartTake(0) },
+    ]);
+  };
+  const restartTake = (from: number) => {
+    recToken.current += 1;
+    setRecording(false);
+    skipped.current = [];
+    rollFrom.current = from;
+    startedRef.current = false;
+    setPh('idle');
+    remountCamera(true);
+    setRoll((n) => n + 1);
+  };
+  const remountCamera = (fresh = false) => {
+    if (fresh) { camRetries.current = 0; setCamError(null); }
+    setCameraReady(false);
+    setCamKey((k) => k + 1);
+  };
+  const cameraFailed = (why: string) => {
+    if (camRetries.current++ < 2) remountCamera();
+    else setCamError(why);
+  };
+  // onCameraReady can be lost (another camera view released the camera after
+  // this one bound it); a camera that isn't up in 5 s is restarted.
+  useEffect(() => {
+    if (!granted || cameraReady || camError) return;
+    const id = setTimeout(() => cameraFailed('Your camera didn’t start.'), 5000);
+    return () => clearTimeout(id);
+  }, [granted, cameraReady, camKey, camError]);
 
   useEffect(() => {
     if (!recording) return;
@@ -257,60 +317,60 @@ export default function StudioScreen({ navigation, route }: Props) {
   const endListen = useRef(() => {});
   // Word-by-word recognition, settled before the take rolls (Android 13+, iOS).
   const speechOk = useRef(false);
-  const stopListening = () => { listenToken.current += 1; endListen.current(); endListen.current = () => {}; };
+  // The room's noise floor, learned across the take.
+  const gate = useRef(newLevelGate());
+  const stopListening = () => { listenToken.current += 1; endListen.current(); endListen.current = () => {}; spoken.set(''); };
+  // The web's self-tape endpointing: silence is read from the audio level and
+  // recognition sets how much of it ends the line (see LineTurn).
   const listen = (s: number) => {
     const token = ++listenToken.current;
     const live = () => token === listenToken.current && phaseRef.current === 'user-turn' && stepRef.current === s && alive.current;
-    setSpoken('');
+    spoken.set('');
     const finish = () => { if (live()) run(s + 1); };
     const text = linesRef.current[s].text;
     const expected = expectedMs(text);
-    let heard = false;
+    const next = clips.current.get(s + 1);
+    if (next && !next.startsWith('mock:')) preloadClip(next);
+    const turn = new LineTurn(text, expected, STUDIO_PATIENT_MS, gate);
     let stopSpeech = () => {};
     let stopMeter = () => {};
-    let speechFailed = false;
-    let tick: ReturnType<typeof setInterval> | undefined;
-    // Nothing heard at all (the actor skipped the line, or the mic is silenced
-    // while the camera records): give the line its spoken length plus a beat.
-    // ponytail: fixed grace; tune per device if the timed fallback cuts actors off.
-    let fallback: ReturnType<typeof setTimeout> | undefined;
-    const armFallback = () => { clearTimeout(fallback); fallback = setTimeout(() => { if (!heard) finish(); }, Math.max(5000, expected * 1.5 + 2000)); };
-    armFallback();
-    endListen.current = () => { clearTimeout(fallback); clearInterval(tick); stopSpeech(); stopMeter(); };
+    let metering = false;
+    let gotVolume = false;
+    let probe: ReturnType<typeof setTimeout> | undefined;
+    // Stall guard: no sound and no new words for this long (the actor skipped
+    // the line, or every level source is silenced) moves the scene on.
+    // ponytail: fixed grace; tune per device if it cuts actors off.
+    let lastActivity = Date.now();
+    const stallMs = Math.max(5000, expected * 1.5 + 2000);
+    const stall = setInterval(() => { if (live() && Date.now() - lastActivity > stallMs) finish(); }, 250);
+    endListen.current = () => { clearInterval(stall); clearTimeout(probe); stopSpeech(); stopMeter(); };
 
-    // Fallback endpointing: trailing silence on a metered mic, as in the Rehearsal Room.
+    const onLevel = (db: number) => {
+      if (!live()) return;
+      const now = Date.now();
+      const done = turn.level(db, now);
+      if (gate.current.speaking) lastActivity = now;
+      if (done) finish();
+    };
+    // A metered recorder as the level source, when recognition can't give one.
     const meter = () => {
-      let ep = newEndpointer();
-      let last = 0;
+      if (metering) return;
+      metering = true;
       stopMeter = () => { void stopRecording().catch(() => null); };
-      startRecording((sample) => {
-        if (!live()) return;
-        const now = Date.now();
-        const dt = last ? Math.min(now - last, 400) : 100;
-        last = now;
-        if (sample.db >= SPEECH_DB) heard = true;
-        ep = feedEndpointer(ep, sample.db, dt, now, expected);
-        if (ep.done) finish();
-      }).then(() => { if (token !== listenToken.current) void stopRecording().catch(() => null); }, () => {});
+      startRecording((sample) => onLevel(sample.db))
+        .then(() => { if (token !== listenToken.current) void stopRecording().catch(() => null); }, () => {});
     };
     if (!speechOk.current) { meter(); return; }
 
-    // The web's rule: wait until the line has been said through to its end,
-    // then move on after a short quiet; a mid-line beat doesn't count.
-    let transcript = '';
-    let changedAt = Date.now();
-    stopSpeech = listenForLine(
-      text,
-      (t) => { if (t === transcript || !live()) return; transcript = t; changedAt = Date.now(); if (t) heard = true; setSpoken(t); },
-      // Recognition died: the meter takes over from scratch, so the timeout
-      // restarts too, or a half-said line could wait forever.
-      () => { speechFailed = true; clearInterval(tick); if (!live()) return; heard = false; armFallback(); meter(); },
-      'videoRecording'
-    );
-    if (speechFailed) return; // failed on start; the meter already took over
-    tick = setInterval(() => {
-      if (live() && lineFinished(lineCoverage(text, transcript), heard, Date.now() - changedAt)) finish();
-    }, 100);
+    let failed = false;
+    stopSpeech = listenForLine(text, {
+      onTranscript: (t) => { if (!live()) return; lastActivity = Date.now(); turn.transcript(t); spoken.set(t); },
+      onVolume: (db) => { gotVolume = true; onLevel(db); },
+      onFail: () => { failed = true; if (!live()) return; turn.speechLost(); meter(); },
+    }, 'videoRecording');
+    if (failed) return;
+    // Some Android recognition services never report volume.
+    probe = setTimeout(() => { if (live() && !gotVolume) meter(); }, 1500);
   };
 
   const run = (s: number) => {
@@ -353,11 +413,20 @@ export default function StudioScreen({ navigation, route }: Props) {
     }
     run(stepRef.current);
   };
+  // Leaving the app mid-take: the OS pauses the partner's audio (whose clip
+  // would then never finish) and stops the camera, so the scene pauses too.
+  // CameraX / AVFoundation finalize what was recorded, which opens in review.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'background') pause(); });
+    return () => sub.remove();
+  }, []);
   const openAids = () => { aidsOpenRef.current = true; setAidsOpen(true); pause(); };
   const closeAids = () => { aidsOpenRef.current = false; setAidsOpen(false); };
 
   const flip = () => {
-    const toggle = () => { setCameraReady(false); setFacing((f) => (f === 'front' ? 'back' : 'front')); };
+    // Android rebinds the camera and reports ready again; iOS switches the
+    // device inside the running session and never re-fires onCameraReady.
+    const toggle = () => { if (Platform.OS === 'android') setCameraReady(false); setFacing((f) => (f === 'front' ? 'back' : 'front')); };
     if (countdown !== null) return; // the take is about to start recording
     if (!recordingRef.current) { toggle(); return; }
     pause();
@@ -373,16 +442,24 @@ export default function StudioScreen({ navigation, route }: Props) {
           rollFrom.current = stepRef.current;
           startedRef.current = false;
           toggle();
+          setRoll((n) => n + 1);
         },
       },
     ]);
   };
+  // Android back / swipe-back mid-take goes through the same "Stop this
+  // take?" question as the Back button, instead of silently dropping the take.
+  useEffect(() => navigation.addListener('beforeRemove', (e) => {
+    if (!recordingRef.current || discard.current) return;
+    e.preventDefault();
+    Alert.alert('Stop this take?', 'This take is discarded.', [
+      { text: 'Keep recording', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => { discard.current = true; stopListening(); cameraRef.current?.stopRecording(); void stopPlayback(); navigation.dispatch(e.data.action); } },
+    ]);
+  }), [navigation]);
   const stop = () => { void stopPlayback(); stopListening(); setPh('done'); cameraRef.current?.stopRecording(); };
-  const close = () => {
-    const quit = () => { discard.current = true; stopListening(); cameraRef.current?.stopRecording(); void stopPlayback(); navigation.goBack(); };
-    if (!recording) { quit(); return; }
-    Alert.alert('Stop this take?', 'This take is discarded.', [{ text: 'Keep recording', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: quit }]);
-  };
+  // Mid-take, the beforeRemove guard above asks first; unmounting stops the rest.
+  const close = () => navigation.goBack();
 
   // ── Render ──
   if (camPerm && micPerm && !granted) {
@@ -416,14 +493,31 @@ export default function StudioScreen({ navigation, route }: Props) {
     camera: ['Turning on your camera…', 'If your phone asks for permission, choose Allow.'],
     voices: ['Getting your scene partner ready…', 'Their lines are being generated now, so the scene plays without pauses.'],
   };
-  const showStage: Exclude<Stage, null> | null = stage === 'camera' && prep ? 'voices' : stage;
+  // A black screen is never left unexplained: until the camera is up (first
+  // start, a restart, an Android flip) the stage says so.
+  const showStage: Exclude<Stage, null> | null =
+    stage === 'camera' && prep ? 'voices' : stage ?? (granted && !cameraReady && !recording && countdown === null ? 'camera' : null);
 
   return (
     <View style={styles.safe}>
       <StatusBar style="light" />
       {granted ? (
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} mode="video" mirror={facing === 'front'} onCameraReady={() => setCameraReady(true)} />
+        // The preview is mirrored by the OS; the file is not (as on the web).
+        // 720p at 2.5 Mbps matches the web's recorder: smaller uploads, and
+        // less encoder load next to recognition on mid-range phones.
+        <CameraView
+          key={camKey}
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing={facing}
+          mode="video"
+          videoQuality="720p"
+          videoBitrate={2_500_000}
+          onCameraReady={() => { camRetries.current = 0; setCameraReady(true); }}
+          onMountError={(e) => cameraFailed(e.message)}
+        />
       ) : null}
+      {recording ? <FloatingMark /> : null}
 
       <SafeAreaView style={styles.chrome}>
         <View style={styles.topRow}>
@@ -439,12 +533,9 @@ export default function StudioScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {/* The web's floating marks: the Reherza rec mark, a red REC pill and the scene status. */}
+        {/* The web's floating marks: a red REC pill and the scene status. */}
         {countdown === null && (recording || (phase !== 'idle' && phase !== 'done')) ? (
           <View style={styles.markRow} pointerEvents="none">
-            <View style={[styles.mark, { backgroundColor: 'rgba(0,0,0,0.45)' }]} accessibilityLabel="Reherza self-tape">
-              <Logo size={11} color={palette.white} />
-            </View>
             {phase !== 'idle' && phase !== 'done' ? (
               <View style={[styles.mark, { backgroundColor: phase === 'user-turn' ? palette.blue : 'rgba(255,255,255,0.15)' }]}>
                 {phase === 'user-turn' ? <Pulse /> : null}
@@ -463,7 +554,16 @@ export default function StudioScreen({ navigation, route }: Props) {
           </View>
         ) : null}
 
-        {showStage ? (
+        {camError ? (
+          <View style={styles.center}>
+            <Feather name="video-off" size={36} color={stageSurfaces.onDarkSubtle} />
+            <Text style={styles.stageTitle}>We couldn’t start your camera</Text>
+            <Text style={styles.stageBody}>{camError} Close other apps that might be using it, then try again.</Text>
+            <TouchableOpacity activeOpacity={PRESS_OPACITY} onPress={() => remountCamera(true)} style={styles.primary} accessibilityRole="button">
+              <Text style={styles.primaryText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : showStage ? (
           <View style={styles.center}>
             <ActivityIndicator color={palette.cyanBright} />
             <Text style={styles.stageTitle}>{stageCopy[showStage][0]}</Text>
@@ -481,7 +581,7 @@ export default function StudioScreen({ navigation, route }: Props) {
                   {current.mine ? `YOU · ${current.speaker}` : phase === 'ai-speaking' ? `${current.speaker} · Partner speaking…` : current.speaker}
                 </Text>
                 {current.mine && cueMode === 'full' ? (
-                  <SpokenLine text={current.text} spoken={phase === 'user-turn' ? spoken : ''} heardColor={palette.green} style={[styles.line, { fontSize: 21 * textScale, lineHeight: 30 * textScale, color: palette.white }]} />
+                  <SpokenLine text={current.text} store={spoken} heardColor={palette.green} style={[styles.line, { fontSize: 21 * textScale, lineHeight: 30 * textScale, color: palette.white }]} />
                 ) : (
                   <Text style={[styles.line, { fontSize: 21 * textScale, lineHeight: 30 * textScale, color: current.mine ? palette.white : palette.cyanBright }]}>
                     {current.mine ? yourText(current) : current.text}
@@ -533,6 +633,35 @@ export default function StudioScreen({ navigation, route }: Props) {
   );
 }
 
+// The web's self-tape watermark: "Reherza" at 55% white, hopping between the
+// frame's corners every 4–6 s while recording (web: drawn into the frame at
+// these fractions). Here it floats over the preview; the file is unmarked,
+// as TakeReview reports (watermarkBurnedIn: false).
+const MARK_SPOTS = [
+  { x: 0.06, y: 0.93, align: 'start' },
+  { x: 0.94, y: 0.93, align: 'end' },
+  { x: 0.06, y: 0.08, align: 'start' },
+  { x: 0.94, y: 0.08, align: 'end' },
+] as const;
+function FloatingMark() {
+  const { width, height } = useWindowDimensions();
+  const [spot, setSpot] = useState(0);
+  useEffect(() => {
+    let id: ReturnType<typeof setTimeout>;
+    const hop = () => { setSpot((n) => (n + 1) % MARK_SPOTS.length); id = setTimeout(hop, 4000 + Math.random() * 2000); };
+    id = setTimeout(hop, 4000 + Math.random() * 2000);
+    return () => clearTimeout(id);
+  }, []);
+  const p = MARK_SPOTS[spot];
+  const size = Math.max(14, Math.round(Math.min(width, height) * 0.045));
+  const edge = p.align === 'start' ? { left: p.x * width } : { right: (1 - p.x) * width };
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Text style={[styles.floatingMark, edge, { top: p.y * height - size * 0.6, fontSize: size, textShadowRadius: size * 0.3 }]}>Reherza</Text>
+    </View>
+  );
+}
+
 // The web's `animate-pulse` dot; holds still under Reduce Motion.
 function Pulse() {
   const reduceMotion = useReduceMotion();
@@ -575,6 +704,7 @@ const styles = StyleSheet.create({
   markRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 8, marginTop: 10, paddingHorizontal: 16 },
   mark: { flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: radii.pill, paddingHorizontal: 13, paddingVertical: 6 },
   markText: { fontFamily: fonts.semibold, fontSize: 12.5, color: palette.white },
+  floatingMark: { position: 'absolute', fontFamily: fonts.bold, color: 'rgba(255,255,255,0.55)', textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width: 0, height: 0 } },
   markDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.white },
   stageTitle: { fontFamily: fonts.heavy, fontSize: 20, color: palette.white, textAlign: 'center' },
   stageBody: { fontFamily: fonts.regular, fontSize: 13.5, lineHeight: 20, color: stageSurfaces.onDarkMuted, textAlign: 'center' },

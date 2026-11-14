@@ -38,31 +38,89 @@ export const expectedMs = (text: string): number => Math.max(800, wordCount(text
 /** Silent-read length for a mock / unvoiced AI line. */
 export const estimateDuration = (text: string): number => Math.max(1200, text.length * 60);
 
-// Web constants (lib/endpointing.ts). No SpeechRecognition on native, so the
-// coverage / lineComplete branches are gone; the time-based rule remains.
-const PATIENT_MS = 1000;
-const MOSTLY_SPOKEN_MS = 500;
-const GIVE_UP_SILENCE_MS = 10000;
-const MIN_SPOKEN_FLOOR_MS = 400;
-const MIN_SPOKEN_RATIO = 0.4;
+// ── Endpointing: a port of the web's lib/endpointing.ts ──────────────────
+// Silence is always measured from the audio level. Speech recognition only
+// changes how much trailing silence ends the turn: a line heard through ends
+// fast, a half-said line gets patience, a barely-started one up to 10 s.
+const LINE_COMPLETE_MS = 500;
 const MOSTLY_SPOKEN_RATIO = 0.75;
-const MOSTLY_SPOKEN_FLOOR = 500;
+const MOSTLY_SPOKEN_FLOOR_MS = 500;
+const MIN_SPOKEN_RATIO = 0.4;
+const MIN_SPOKEN_FLOOR_MS = 400;
+const MIN_COVERAGE = 0.3;
+const GIVE_UP_SILENCE_MS = 10000;
+/** The web's patience on phones: Rehearsal 1000 ms, Self-Tape 2000 ms. */
+export const PATIENT_MS = 1000;
+export const STUDIO_PATIENT_MS = 2000;
+/** Share of the line's words heard that counts as "said through". */
+export const LINE_COMPLETE_COVERAGE = 0.8;
+export const LONG_PAUSE_MS = 1500;
 
-/** How much trailing silence ends the turn, given how much has been said. */
-export function silenceWindowMs(speechMs: number, expected: number): number {
-  if (expected > 0 && speechMs < Math.max(MIN_SPOKEN_FLOOR_MS, expected * MIN_SPOKEN_RATIO)) {
-    return GIVE_UP_SILENCE_MS;
-  }
-  const mostlySpoken = speechMs >= expected * MOSTLY_SPOKEN_RATIO && speechMs >= MOSTLY_SPOKEN_FLOOR;
-  return mostlySpoken ? MOSTLY_SPOKEN_MS : PATIENT_MS;
+export interface LineSignal {
+  /** Recognition is running and has produced results for this line. */
+  contentSignal?: boolean;
+  /** Coverage has reached LINE_COMPLETE_COVERAGE at some point this line. */
+  lineComplete?: boolean;
+  coverage?: number;
 }
 
-// Metering thresholds. expo-audio reports the recorder's peak power in dBFS
-// (0 = clipping, -160 = silence). Speech on a phone mic sits around -25…-5.
-// ponytail: fixed threshold; add a noise-floor calibration (first 300 ms)
-// if quiet rooms or loud fans misfire.
-export const SPEECH_DB = -32;
-export const LONG_PAUSE_MS = 1500;
+/** How much trailing silence ends the turn (the web's silenceWindow). */
+export function silenceWindowMs(speechMs: number, expected: number, patientMs = PATIENT_MS, sig: LineSignal = {}): number {
+  if (sig.lineComplete) return LINE_COMPLETE_MS;
+  if (expected > 0) {
+    const covered = (sig.coverage ?? 0) >= MIN_COVERAGE;
+    const spoke = speechMs >= Math.max(MIN_SPOKEN_FLOOR_MS, expected * MIN_SPOKEN_RATIO);
+    if (!covered && !spoke) return GIVE_UP_SILENCE_MS;
+  }
+  if (sig.contentSignal) return patientMs;
+  return expected > 0 && speechMs >= expected * MOSTLY_SPOKEN_RATIO && speechMs >= MOSTLY_SPOKEN_FLOOR_MS ? LINE_COMPLETE_MS : patientMs;
+}
+
+/** The web's tokenizer, plus curly apostrophes folded so "I’d" meets "I'd". */
+export const tokens = (s: string): string[] =>
+  s.toLowerCase().replace(/[’‘]/g, "'").replace(/[^a-z0-9\s']/gi, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+
+/** Share of the line's words present anywhere in the transcript (order-free, as on the web). */
+export function lineCoverage(transcript: string, expectedWords: string[]): number {
+  if (!expectedWords.length) return 0;
+  const heard = new Set(tokens(transcript));
+  return expectedWords.filter((w) => heard.has(w)).length / expectedWords.length;
+}
+
+// ── Level gate: is the actor making sound right now? ──
+// The web decides this with a VAD over true RMS. Native gets one level per
+// ~100 ms whose scale differs by phone and source (Android's recorder meter
+// is a peak, the recognizer's volume is its own scale), so a fixed dB
+// threshold misfires: noise reads as speech and the turn never ends. The gate
+// is relative to the room instead: the noise floor is a low percentile of the
+// last few seconds (robust to one-off dips, which a plain minimum is not, and
+// speech always has gaps within that window), speech is a clear rise above
+// it, with on/off hysteresis like the web VAD's 0.5 / 0.35.
+// ponytail: fixed margins; tune GATE_ON/OFF_DB per device class if needed.
+const GATE_ON_DB = 14;
+const GATE_OFF_DB = 9;
+const FLOOR_WINDOW_MS = 4000;
+const FLOOR_PERCENTILE = 0.1;
+const FLOOR_CAP_DB = -40;   // until the room has been heard, assume a quiet one
+const FLOOR_WARMUP_MS = 1000;
+const NO_SIGNAL_DB = -100;  // -160 = no data (first poll, silenced capture)
+
+export interface LevelGate { history: Array<{ t: number; db: number }>; floor: number; speaking: boolean }
+export const newLevelGate = (): LevelGate => ({ history: [], floor: FLOOR_CAP_DB, speaking: false });
+
+export function feedLevel(g: LevelGate, db: number, now: number): LevelGate {
+  if (db <= NO_SIGNAL_DB) return { ...g, speaking: false };
+  const history = [...g.history.filter((h) => now - h.t <= FLOOR_WINDOW_MS), { t: now, db }];
+  const sorted = history.map((h) => h.db).sort((a, b) => a - b);
+  const quietest = sorted[Math.floor((sorted.length - 1) * FLOOR_PERCENTILE)];
+  const warm = now - history[0].t >= FLOOR_WARMUP_MS;
+  const floor = warm ? quietest : Math.min(FLOOR_CAP_DB, quietest);
+  const speaking = db - floor >= (g.speaking ? GATE_OFF_DB : GATE_ON_DB);
+  return { history, floor, speaking };
+}
+
+/** The recognizer's volume event (-2…10, linear over -60…0 dB) back to dB. */
+export const volumeToDb = (v: number): number => ((v + 2) / 12) * 60 - 60;
 
 export interface Endpointer {
   speechMs: number;
@@ -70,18 +128,22 @@ export interface Endpointer {
   longPauses: number;
   firstSpeechAt: number | null;
   lastSpeechAt: number | null;
+  /** The silence window last applied, for debugging. */
+  windowMs: number;
   /** True once, when trailing silence crosses the window after speech. */
   done: boolean;
 }
 
 export const newEndpointer = (): Endpointer => ({
-  speechMs: 0, silenceMs: 0, longPauses: 0, firstSpeechAt: null, lastSpeechAt: null, done: false,
+  speechMs: 0, silenceMs: 0, longPauses: 0, firstSpeechAt: null, lastSpeechAt: null, windowMs: 0, done: false,
 });
 
-/** Feed one metering sample. `dt` = ms since the previous sample. */
-export function feedEndpointer(e: Endpointer, db: number, dt: number, now: number, expected: number): Endpointer {
+/** Feed one frame. `dt` = ms since the previous frame. */
+export function feedEndpointer(
+  e: Endpointer, speaking: boolean, dt: number, now: number, expected: number,
+  patientMs = PATIENT_MS, sig: LineSignal = {}
+): Endpointer {
   if (e.done) return e;
-  const speaking = db >= SPEECH_DB;
   const n = { ...e };
   if (speaking) {
     n.speechMs += Math.min(dt, 250);
@@ -92,39 +154,61 @@ export function feedEndpointer(e: Endpointer, db: number, dt: number, now: numbe
     const before = n.silenceMs;
     n.silenceMs += dt;
     if (before < LONG_PAUSE_MS && n.silenceMs >= LONG_PAUSE_MS) n.longPauses += 1;
-    if (n.silenceMs >= silenceWindowMs(n.speechMs, expected)) n.done = true;
+    n.windowMs = silenceWindowMs(n.speechMs, expected, patientMs, sig);
+    if (n.silenceMs >= n.windowMs) n.done = true;
   }
   return n;
 }
 
-// ── Word-level endpointing (speech recognition) ───────────────────────────
-// The web's coverage rule: the turn ends once the line has been said through
-// to its last word and the recognizer goes quiet, not on silence alone, so a
-// mid-line beat doesn't cut the actor off.
-
-export interface LineCoverage {
-  /** 0…1 share of the line's words heard; a misheard word counts half. */
-  coverage: number;
-  /** The transcript reaches the line's last word. */
-  endHeard: boolean;
-}
-
-export function lineCoverage(expected: string, spoken: string): LineCoverage {
-  const words = wordDiff(expected, spoken).words.filter((w) => norm(w.text));
-  if (!words.length || !spoken.trim()) return { coverage: 0, endHeard: false };
-  const score = words.reduce((n, w) => n + (w.status === 'matched' ? 1 : w.status === 'changed' ? 0.5 : 0), 0);
-  return { coverage: score / words.length, endHeard: words[words.length - 1].status !== 'missing' };
-}
-
-const LINE_DONE_QUIET_MS = 700;
-const LINE_PARTIAL_QUIET_MS = 4000;
-
-/** `quietMs` = time since the transcript last changed. Nothing heard → never
- *  (the caller times out a skipped line). */
-export function lineFinished(c: LineCoverage, heardAnything: boolean, quietMs: number): boolean {
-  if (!heardAnything) return false;
-  const complete = c.coverage >= 0.85 || (c.endHeard && c.coverage >= 0.6);
-  return quietMs >= (complete ? LINE_DONE_QUIET_MS : LINE_PARTIAL_QUIET_MS);
+/**
+ * One user turn: level frames and recognition results in, "done" out. Both
+ * screens drive this; only where their level and transcript come from differs.
+ */
+export class LineTurn {
+  ep = newEndpointer();
+  coverage = 0;
+  lineComplete = false;
+  contentSignal = false;
+  /** Any sound or any recognized word this turn. */
+  heard = false;
+  /** Any real level frame at all; a silenced capture only ever reports -160. */
+  hadSignal = false;
+  private words: string[];
+  /** Every word recognized this turn: a recognizer revision or a segment
+   *  reset can't un-hear one. */
+  private heardWords = new Set<string>();
+  private expected: number;
+  private patientMs: number;
+  private gate: { current: LevelGate };
+  private last = 0;
+  constructor(text: string, expected: number, patientMs: number, gate: { current: LevelGate }) {
+    this.words = tokens(text);
+    this.expected = expected;
+    this.patientMs = patientMs;
+    this.gate = gate;
+  }
+  /** A level frame in dB. Returns true once, when the turn has ended. */
+  level(db: number, now: number): boolean {
+    const was = this.ep.done;
+    const dt = this.last ? Math.min(now - this.last, 400) : 100;
+    this.last = now;
+    if (db > NO_SIGNAL_DB) this.hadSignal = true;
+    this.gate.current = feedLevel(this.gate.current, db, now);
+    if (this.gate.current.speaking) this.heard = true;
+    this.ep = feedEndpointer(this.ep, this.gate.current.speaking, dt, now, this.expected, this.patientMs, {
+      contentSignal: this.contentSignal, lineComplete: this.lineComplete, coverage: this.coverage > 0 ? this.coverage : undefined,
+    });
+    return !was && this.ep.done;
+  }
+  transcript(text: string) {
+    this.contentSignal = true;
+    if (text.trim()) this.heard = true;
+    for (const w of tokens(text)) this.heardWords.add(w);
+    this.coverage = this.words.length ? this.words.filter((w) => this.heardWords.has(w)).length / this.words.length : 0;
+    if (this.coverage >= LINE_COMPLETE_COVERAGE) this.lineComplete = true;
+  }
+  /** Recognition stopped: fall back to the time-only rule, as the web does. */
+  speechLost() { this.contentSignal = false; }
 }
 
 // ── TTS payloads ──────────────────────────────────────────────────────────

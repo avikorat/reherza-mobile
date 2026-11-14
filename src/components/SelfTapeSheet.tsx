@@ -36,9 +36,13 @@ export default function SelfTapeSheet({
   const [cleared, setCleared] = useState(false);
   const [perm] = useCameraPermissions();
   const [live, setLive] = useState(false);
+  // Set on Start: the preview camera is released before the Studio opens its
+  // own. On Android a camera view's teardown unbinds every camera in the app,
+  // so a late teardown of this preview would switch the Studio's camera off.
+  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
-    if (!open) { setCleared(false); setLive(false); return; }
+    if (!open) { setCleared(false); setLive(false); setLeaving(false); return; }
     let live = true;
     void (async () => {
       try {
@@ -78,7 +82,7 @@ export default function SelfTapeSheet({
 
         {/* Mirrored like a mirror; the recording itself is not. */}
         <View style={[styles.preview, { backgroundColor: theme.surfaceAlt }]}>
-          {open && cleared && perm?.granted ? (
+          {open && cleared && perm?.granted && !leaving ? (
             <CameraView style={StyleSheet.absoluteFill} facing="front" mirror onCameraReady={() => setLive(true)} />
           ) : null}
           {!live ? (
@@ -112,8 +116,13 @@ export default function SelfTapeSheet({
 
         <GradientButton
           label={cleared ? 'Start self tape' : 'Checking your credits…'}
-          disabled={!cleared}
-          onPress={() => { onClose(); onStart(countdown); }}
+          disabled={!cleared || leaving}
+          onPress={() => {
+            if (leaving) return;
+            setLeaving(true);
+            // ponytail: fixed hand-off delay; the Studio also restarts a camera that doesn't come up.
+            setTimeout(() => { onClose(); onStart(countdown); }, 300);
+          }}
           style={{ marginTop: 20, opacity: cleared ? 1 : 0.6 }}
         />
       </View>

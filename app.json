@@ -62,7 +62,7 @@
         {
           "microphonePermission": "Reherza listens while you rehearse so it can tell when your line ends, check your words against the script, and score your delivery. Audio is captured only on your turn.",
           "speechRecognitionPermission": "Reherza follows your lines word by word so the scene moves on as soon as you finish speaking. Speech is only recognised on your turn.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.tts"]
+          "androidSpeechServicePackages": ["com.google.android.as", "com.google.android.tts", "com.google.android.googlequicksearchbox"]
         }
       ],
       [

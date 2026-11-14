@@ -13,11 +13,13 @@ import * as FileSystem from 'expo-file-system/legacy';
 // ── Audio session ─────────────────────────────────────────────────────────
 // The mode is flipped per turn: playback for the partner's line, record for
 // yours. Left in record mode, iOS routes playback to the earpiece. The flip
-// is skipped when already in the wanted mode.
+// is skipped when already in the wanted mode, unless forced: next to the
+// camera, the capture session and the recognizer reconfigure the iOS audio
+// session behind this cache, which can leave playback on the earpiece.
 let recordMode: boolean | null = null;
 
-async function setMode(record: boolean): Promise<void> {
-  if (recordMode === record) return;
+async function setMode(record: boolean, force = false): Promise<void> {
+  if (recordMode === record && !force) return;
   recordMode = record;
   await setAudioModeAsync({
     allowsRecording: record,
@@ -30,6 +32,8 @@ async function setMode(record: boolean): Promise<void> {
 
 export async function leaveRehearsalAudioMode(): Promise<void> {
   recordMode = null;
+  try { preloaded?.player.remove(); } catch {}
+  preloaded = null;
   await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
 }
 
@@ -62,13 +66,26 @@ export async function cacheClip(key: string, audioBase64: string, mimeType: stri
 
 let currentPlayer: AudioPlayer | null = null;
 
+// The partner's next line is loaded while the actor is still speaking (the
+// web's prepare()), so it starts the moment the turn ends instead of after a
+// player is created and the file decoded. One clip is held at a time.
+let preloaded: { uri: string; player: AudioPlayer } | null = null;
+
+export function preloadClip(uri: string): void {
+  if (preloaded?.uri === uri) return;
+  try { preloaded?.player.remove(); } catch {}
+  try { preloaded = { uri, player: createAudioPlayer({ uri }, { updateInterval: 100 }) }; } catch { preloaded = null; }
+}
+
 /** Play a cached clip. Resolves when playback ends, or immediately if stopped.
  *  `whileRecording` keeps the session in record mode — the Studio plays the
  *  partner while the camera records, and leaving record mode would cut its audio. */
 export async function playClip(uri: string, whileRecording = false): Promise<void> {
   await stopPlayback();
-  await setMode(whileRecording);
-  const player = createAudioPlayer({ uri }, { updateInterval: 100 });
+  await setMode(whileRecording, whileRecording);
+  const warm = preloaded?.uri === uri ? preloaded.player : null;
+  if (warm) preloaded = null;
+  const player = warm ?? createAudioPlayer({ uri }, { updateInterval: 100 });
   currentPlayer = player;
   await new Promise<void>((resolve) => {
     const sub = player.addListener('playbackStatusUpdate', (st) => {

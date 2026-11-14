@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Animated, Easing, AppState } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
@@ -18,16 +18,16 @@ import {
 } from '../api';
 import {
   cacheClip, leaveRehearsalAudioMode, micPermission,
-  playClip, putFile, startRecording, stopPlayback, stopRecording, type MicPermission, type RecordedAudio,
+  playClip, preloadClip, putFile, startRecording, stopPlayback, stopRecording, type MicPermission, type RecordedAudio,
 } from '../lib/audio';
 import { askMicrophone, openSettingsForPermission } from '../lib/permissions';
 import { useReduceMotion } from '../lib/motion';
 import {
-  buildSequence, clip, estimateDuration, expectedMs, feedEndpointer, findRedoStep, lineCoverage, lineFinished,
-  newEndpointer, sceneWindow, ttsContext, type Endpointer,
+  buildSequence, clip, estimateDuration, expectedMs, findRedoStep, LineTurn, newLevelGate, PATIENT_MS,
+  sceneWindow, ttsContext,
 } from '../lib/rehearsal';
 import { ensureSpeechPermission, listenForLine } from '../lib/speech';
-import SpokenLine from '../components/SpokenLine';
+import SpokenLine, { createSpokenStore } from '../components/SpokenLine';
 import { fonts, radii, palette, buttonSpacing, brandGradient, brandGradientLocations, gradientStart, gradientEnd, PRESS_OPACITY, controlPill } from '../theme';
 import type { LineResult, PlayableLine, Project, RecordingClip, RootStackParamList, SessionFeedback, TranscriptResult, UsageInfo } from '../types';
 
@@ -100,12 +100,14 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
 
   // ── Your turn ──
   const [listening, setListening] = useState(false);
-  const [level, setLevel] = useState(0);
+  // Mic level for the meter: an Animated.Value, so 10 updates a second move
+  // the bar without re-rendering the room.
+  const level = useRef(new Animated.Value(0)).current;
   const [deviceLoss, setDeviceLoss] = useState<string | null>(null);
   // Word-by-word recognition runs beside the m4a recorder: it only decides
   // when the line ends and drives the highlight; scoring still uses the m4a.
   const speechOkRef = useRef(false);
-  const [spoken, setSpoken] = useState('');
+  const spoken = useRef(createSpokenStore()).current;
 
   // ── Saving ──
   const [saveStatus, setSaveStatus] = useState<{ text: string; done?: number; total?: number }>({ text: '' });
@@ -121,10 +123,12 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
   const captures = useRef(new Map<number, Capture>());
   const pendingTranscripts = useRef(new Map<number, Promise<TranscriptResult | null>>());
   const pendingCapture = useRef<Promise<void> | null>(null);
-  const endpointer = useRef<Endpointer>(newEndpointer());
-  const lastSampleAt = useRef(0);
+  // The current turn (level + words → done) and the room's noise floor,
+  // learned across the run.
+  const turnRef = useRef<LineTurn>(new LineTurn('', 0, PATIENT_MS, { current: newLevelGate() }));
+  const gate = useRef(newLevelGate());
   const recordStartAt = useRef(0);
-  const words = useRef<{ active: boolean; heard: boolean; stop: () => void; tick?: ReturnType<typeof setInterval> }>({ active: false, heard: false, stop: () => {} });
+  const words = useRef<{ heard: boolean; stop: () => void }>({ heard: false, stop: () => {} });
   const linesRef = useRef<PlayableLine[]>([]);
   const seqRef = useRef<number[]>([]);
 
@@ -380,75 +384,56 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
   const runUserTurn = async (s: number, epoch: number) => {
     const ls = linesRef.current, sq = seqRef.current;
     setPhaseBoth('my-turn');
-    if (s + 1 < sq.length && !ls[sq[s + 1]].mine) getAi(s + 1).catch(() => {});
-    endpointer.current = newEndpointer();
-    lastSampleAt.current = 0;
-    setLevel(0);
+    if (s + 1 < sq.length && !ls[sq[s + 1]].mine) getAi(s + 1).then((ai) => { if (ai.uri) preloadClip(ai.uri); }, () => {});
+    const text = ls[sq[s]].text;
+    const turn = new LineTurn(text, expectedMs(text), PATIENT_MS, gate);
+    turnRef.current = turn;
+    level.setValue(0);
     stopWords();
-    setSpoken('');
+    spoken.set('');
     if (micRef.current !== 'granted') return; // manual mode: Done only
-    const expected = expectedMs(ls[sq[s]].text);
     try {
       await startRecording((sample) => {
         if (epoch !== epochRef.current || phaseRef.current !== 'my-turn') return;
-        const now = Date.now();
-        const dt = lastSampleAt.current ? Math.min(now - lastSampleAt.current, 400) : 100;
-        lastSampleAt.current = now;
-        endpointer.current = feedEndpointer(endpointer.current, sample.db, dt, now, expected);
-        setLevel(Math.min(1, Math.max(0, (sample.db + 60) / 60)));
-        if (endpointer.current.done && meterMayEnd()) void handleDone();
+        level.setValue(Math.min(1, Math.max(0, (sample.db + 60) / 60)));
+        if (turn.level(sample.db, Date.now())) void handleDone();
       });
       recordStartAt.current = Date.now();
       if (epoch === epochRef.current) setListening(true);
-      if (epoch === epochRef.current && speechOkRef.current) startWords(ls[sq[s]].text, epoch);
+      if (epoch === epochRef.current && speechOkRef.current) startWords(text, turn, epoch);
     } catch {
       if (epoch === epochRef.current) onDeviceLoss('in-use');
     }
   };
 
-  // The web's rule: the line ends once it has been said through to its last
-  // word and the recognizer goes quiet; a mid-line beat doesn't end it.
-  const startWords = (text: string, epoch: number) => {
+  // Recognition only feeds the turn its words: how much of the line has been
+  // said decides how much silence ends it, as on the web. The recorder's meter
+  // stays the clock for silence either way.
+  const startWords = (text: string, turn: LineTurn, epoch: number) => {
     const live = () => epoch === epochRef.current && phaseRef.current === 'my-turn';
-    const w: typeof words.current = { active: true, heard: false, stop: () => {} };
+    const w: typeof words.current = { heard: false, stop: () => {} };
     words.current = w;
-    let transcript = '';
-    let changedAt = Date.now();
-    w.stop = listenForLine(
-      text,
-      (t) => { if (t === transcript || !live()) return; transcript = t; changedAt = Date.now(); if (t) w.heard = true; setSpoken(t); },
-      // Recognition died: the silence meter is still running and takes over.
-      () => { w.active = false; clearInterval(w.tick); }
-    );
-    if (!w.active) return;
-    w.tick = setInterval(() => {
-      if (live() && lineFinished(lineCoverage(text, transcript), w.heard, Date.now() - changedAt)) void handleDone();
-    }, 100);
+    w.stop = listenForLine(text, {
+      onTranscript: (t) => { if (!live()) return; if (t) w.heard = true; turn.transcript(t); spoken.set(t); },
+      onFail: () => turn.speechLost(),
+    });
   };
   const stopWords = () => {
-    const w = words.current;
-    clearInterval(w.tick);
-    w.stop();
-    words.current = { active: false, heard: false, stop: () => {} };
-  };
-  // The silence meter ends the turn only when recognition isn't following it —
-  // or when the meter heard speech but recognition caught no words for 3 s.
-  const meterMayEnd = () => {
-    const w = words.current, last = endpointer.current.lastSpeechAt;
-    return !w.active || (!w.heard && last != null && Date.now() - last >= 3000);
+    words.current.stop();
+    words.current = { heard: false, stop: () => {} };
   };
 
   // Stop the mic and hand the clip to transcription without blocking the reply.
   const captureUserLine = async (idx: number) => {
-    const e = endpointer.current;
-    // Recognition heard words but the recorder's meter never did: this device
-    // silences one of two concurrent mic captures, so the m4a scoring needs is
-    // empty. Recognition steps aside for the rest of the run.
-    if (words.current.heard && e.firstSpeechAt == null) speechOkRef.current = false;
+    const e = turnRef.current.ep;
+    // Recognition heard words but the recorder delivered no signal at all:
+    // this device silences one of two concurrent mic captures, so the m4a
+    // scoring needs is empty. Recognition steps aside for the rest of the run.
+    if (words.current.heard && !turnRef.current.hadSignal) speechOkRef.current = false;
     stopWords();
     const rec = await stopRecording().catch(() => null);
     setListening(false);
-    setLevel(0);
+    level.setValue(0);
     const audio = rec && rec.bytes >= 3000 ? rec : null;
     captures.current.set(idx, {
       durationMs: e.firstSpeechAt != null && e.lastSpeechAt != null ? e.lastSpeechAt - e.firstSpeechAt : 0,
@@ -491,7 +476,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
     await pendingCapture.current;
     await stopRecording().catch(() => null);
     setListening(false);
-    setLevel(0);
+    level.setValue(0);
   };
 
   const handlePause = async () => {
@@ -499,6 +484,14 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
     await halt();
     setPhaseBoth('paused');
   };
+
+  // Leaving the app mid-scene: the OS pauses the partner's audio (whose clip
+  // would then never finish) and cuts the mic, so the scene pauses as if
+  // Pause had been tapped; Resume picks the line up again.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'background') void handlePause(); });
+    return () => sub.remove();
+  }, []);
 
   const handleResume = () => {
     if (phaseRef.current !== 'paused') return;
@@ -549,13 +542,18 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
     void saveAndNavigate();
   };
 
-  const handleExit = () => {
-    if (phaseRef.current === 'idle') { navigation.goBack(); return; }
+  // Mid-run, leaving asks first, whether by the Back button, Android back or
+  // a swipe; saving (which opens the results) and the idle room pass through.
+  const leaving = useRef(false);
+  useEffect(() => navigation.addListener('beforeRemove', (e) => {
+    if (leaving.current || phaseRef.current === 'idle' || phaseRef.current === 'saving') return;
+    e.preventDefault();
     Alert.alert('Leave the rehearsal?', 'This run will not be saved.', [
       { text: 'Stay', style: 'cancel' },
-      { text: 'Leave', style: 'destructive', onPress: () => navigation.goBack() },
+      { text: 'Leave', style: 'destructive', onPress: () => { leaving.current = true; navigation.dispatch(e.data.action); } },
     ]);
-  };
+  }), [navigation]);
+  const handleExit = () => navigation.goBack();
 
   const onDeviceLoss = (why: 'in-use' | 'denied') => {
     void handlePause();
@@ -850,7 +848,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
                 {line.speaker}{line.mine ? <Text style={{ opacity: 0.6 }}>  ·  You</Text> : null}
               </Text>
               <Text style={[styles.lineText, { color: theme.text }]}>
-                “{line.mine && phase === 'my-turn' ? <SpokenLine text={line.text} spoken={spoken} heardColor={theme.tpSpoken} /> : line.text}”
+                “{line.mine && phase === 'my-turn' ? <SpokenLine text={line.text} store={spoken} heardColor={theme.tpSpoken} /> : line.text}”
               </Text>
               {phase === 'loading' ? (
                 <View style={{ marginTop: 18 }}><Waveform color={theme.muted} bars={5} /></View>
@@ -858,7 +856,7 @@ export default function RehearsalRoomScreen({ navigation, route }: Props) {
               {phase === 'my-turn' ? (
                 <View style={[styles.speechPanel, { borderTopColor: theme.border }]}>
                   <View style={[styles.meterTrack, { backgroundColor: theme.surfaceAlt }]}>
-                    <View style={[styles.meterFill, { width: `${Math.round(level * 100)}%`, backgroundColor: theme.tpYou }]} />
+                    <Animated.View style={[styles.meterFill, { width: level.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }), backgroundColor: theme.tpYou }]} />
                   </View>
                   <Text style={{ fontFamily: fonts.regular, fontStyle: 'italic', fontSize: 12, color: theme.muted }}>
                     {manual ? "Manual mode, speech isn't being captured for this line." : listening ? 'Recording, speak your line, then pause.' : 'Getting ready…'}
